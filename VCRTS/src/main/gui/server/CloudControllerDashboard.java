@@ -1,17 +1,16 @@
 package gui.server;
 
 import javax.swing.*;
-
-
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.JTableHeader;
 import javax.swing.table.TableColumnModel;
 import java.awt.*;
-import java.util.Comparator; // Import Comparator
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.Iterator;
 
 import dao.JobDAO;
 import dao.UserDAO;
@@ -22,7 +21,7 @@ import models.Job;
 import models.PendingRequest;
 import models.User;
 import models.Allocation;
-import models.Vehicle; // Import Vehicle
+import models.Vehicle;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -42,17 +41,101 @@ public class CloudControllerDashboard extends JPanel {
     private JButton approveRequestButton, rejectRequestButton;
     private JComboBox<String> userDropdown, jobDropdown;
     private JLabel queueStatusLabel;
+    
     // DAO instances
     private JobDAO jobDAO = new JobDAO();
     private UserDAO userDAO = new UserDAO();
     private AllocationDAO allocationDAO = new AllocationDAO();
     private CloudControllerDAO cloudControllerDAO = new CloudControllerDAO();
-    private Timer pendingRequestsRefreshTimer;
     
+    // Socket server fields
     private ServerSocket serverSocket; 
     private final int PORT = 9876; 
     private boolean isRunning = true; 
     private List<ClientHandler> clientHandlers = new ArrayList<>();
+    
+    // In-memory storage for pending requests
+    private List<PendingRequest> pendingRequests = new ArrayList<>();
+    private int nextRequestId = 1;
+    
+    public CloudControllerDashboard() {
+        // Start socket server first
+        startSocketServer();
+        Runtime.getRuntime().addShutdownHook(new Thread(this::stopSocketServer));
+        
+        setLayout(new BorderLayout());
+        setBackground(Color.LIGHT_GRAY);
+        
+        // Top panel with title
+        JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        topPanel.setBackground(new Color(43, 43, 43));
+        JLabel titleLabel = new JLabel("Cloud Controller Dashboard", SwingConstants.CENTER);
+        titleLabel.setFont(new Font("Arial", Font.BOLD, 20));
+        titleLabel.setForeground(Color.WHITE);
+        topPanel.add(titleLabel);
+        add(topPanel, BorderLayout.NORTH);
+
+        // Tabbed pane for different views
+        JTabbedPane tabbedPane = new JTabbedPane();
+        tabbedPane.setFont(new Font("Arial", Font.BOLD, 14));
+
+        // --- Pending Requests Tab ---
+        JPanel pendingRequestPanel = createPendingRequestPanel();
+        tabbedPane.addTab("Pending Approvals", UIManager.getIcon("OptionPane.questionIcon"), pendingRequestPanel);
+
+        // --- Jobs Tab ---
+        JPanel jobPanel = createJobPanel();
+        tabbedPane.addTab("Jobs", UIManager.getIcon("FileView.hardDriveIcon"), jobPanel);
+
+        // --- Users Tab ---
+        JPanel userPanel = createUserPanel();
+        tabbedPane.addTab("Users", UIManager.getIcon("FileChooser.detailsViewIcon"), userPanel);
+
+        // --- Allocations Tab ---
+        JPanel allocationPanel = createAllocationPanel();
+        tabbedPane.addTab("Allocations", UIManager.getIcon("Tree.openIcon"), allocationPanel);
+
+        // --- Schedule Tab ---
+        JPanel schedulePanel = createSchedulePanel();
+        tabbedPane.addTab("Job Schedule", UIManager.getIcon("Tree.leafIcon"), schedulePanel);
+
+        add(tabbedPane, BorderLayout.CENTER);
+
+        // Load initial data
+        refreshAllData();
+        loadPendingRequestData(); // Initial load of in-memory pending requests
+
+        tabbedPane.setSelectedIndex(0);
+        
+        // Set up refresh timer for pending requests UI
+        new Timer(5000, e -> SwingUtilities.invokeLater(() -> loadPendingRequestData())).start();
+
+        // Add tab change listener to refresh relevant data
+        tabbedPane.addChangeListener(e -> {
+            int selectedIndex = tabbedPane.getSelectedIndex();
+            switch (selectedIndex) {
+                case 0: // Pending Approvals
+                    loadPendingRequestData();
+                    break;
+                case 1: // Jobs
+                    loadJobData();
+                    break;
+                case 2: // Users
+                    loadUserData();
+                    break;
+                case 3: // Allocations
+                    loadAllocationData();
+                    loadAllocationDropdowns();
+                    break;
+                case 4: // Schedule
+                    loadScheduleData();
+                    updateQueueStatus();
+                    break;
+            }
+        });
+    }
+    
+    // --- Socket Server Methods ---
     
     public void startSocketServer() {
         new Thread(() -> {
@@ -66,6 +149,7 @@ public class CloudControllerDashboard extends JPanel {
                         ClientHandler handler = new ClientHandler(clientSocket);
                         clientHandlers.add(handler);
                         new Thread(handler).start();
+                        System.out.println("New client connected: " + clientSocket.getInetAddress());
                     } catch (IOException e) {
                         if (isRunning) {
                             e.printStackTrace();
@@ -86,13 +170,23 @@ public class CloudControllerDashboard extends JPanel {
         if (serverSocket != null && !serverSocket.isClosed()) {
             try {
                 serverSocket.close();
+                System.out.println("Socket server stopped");
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }
     }
     
- // Inner class to handle client connections
+    // Send approval/rejection notifications to all clients
+    private void broadcastApprovalStatus(String vin, boolean approved) {
+        String message = "APPROVAL_STATUS:" + vin + "," + (approved ? "approved" : "rejected");
+        System.out.println("Broadcasting: " + message);
+        for (ClientHandler handler : clientHandlers) {
+            handler.sendMessage(message);
+        }
+    }
+
+    // Inner class to handle client connections
     private class ClientHandler implements Runnable {
         private Socket clientSocket;
         private PrintWriter out;
@@ -127,18 +221,86 @@ public class CloudControllerDashboard extends JPanel {
         }
 
         private void processMessage(String message) {
+            System.out.println("Received message: " + message);
+            
             // Parse the message and take appropriate action
             if (message.startsWith("NEW_VEHICLE:")) {
-                // Example: NEW_VEHICLE:userId,make,model,year,vin
+                // Format: NEW_VEHICLE:userId,make,model,year,vin,residencyTime
                 String[] parts = message.substring("NEW_VEHICLE:".length()).split(",");
-                // Notify UI about new pending request
-                SwingUtilities.invokeLater(() -> loadPendingRequestData());
+                if (parts.length >= 6) {
+                    try {
+                        int userId = Integer.parseInt(parts[0]);
+                        String make = parts[1];
+                        String model = parts[2];
+                        String year = parts[3];
+                        String vin = parts[4];
+                        String residencyTime = parts[5];
+                        
+                        // Create a Vehicle object
+                        Vehicle vehicle = new Vehicle(userId, model, make, year, vin, residencyTime);
+                        
+                        // Create a PendingRequest object
+                        UserDAO userDAO = new UserDAO();
+                        User submitter = userDAO.getUserById(userId);
+                        
+                        PendingRequest request = new PendingRequest(
+                            PendingRequest.RequestType.VEHICLE,
+                            vehicle,
+                            null // User object not needed
+                        );
+                        
+                        // Set submitted by info manually since we don't have User object
+                        String submitterInfo = "User ID: " + userId;
+                        if (submitter != null) {
+                            submitterInfo += " (" + submitter.getFullName() + ")";
+                        }
+                        
+                        // Use reflection to set the submittedByInfo field
+                        try {
+                            java.lang.reflect.Field field = PendingRequest.class.getDeclaredField("submittedByInfo");
+                            field.setAccessible(true);
+                            field.set(request, submitterInfo);
+                        } catch (Exception e) {
+                            System.err.println("Error setting submittedByInfo: " + e.getMessage());
+                        }
+                        
+                        // Add to in-memory list
+                        synchronized(pendingRequests) {
+                            // Set the request ID manually to ensure uniqueness
+                            try {
+                                java.lang.reflect.Field field = PendingRequest.class.getDeclaredField("requestId");
+                                field.setAccessible(true);
+                                field.set(request, nextRequestId++);
+                            } catch (Exception e) {
+                                System.err.println("Error setting requestId: " + e.getMessage());
+                            }
+                            
+                            pendingRequests.add(request);
+                        }
+                        
+                        // Update the UI asynchronously
+                        SwingUtilities.invokeLater(() -> {
+                            loadPendingRequestData();
+                            // Show notification about new request
+                            JOptionPane.showMessageDialog(
+                                CloudControllerDashboard.this,
+                                "New vehicle registration request received!\nMake: " + make + ", Model: " + model + ", VIN: " + vin,
+                                "New Request",
+                                JOptionPane.INFORMATION_MESSAGE
+                            );
+                        });
+                    } catch (Exception e) {
+                        System.err.println("Error processing vehicle request: " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                }
             }
         }
 
         public void sendMessage(String message) {
             if (out != null) {
                 out.println(message);
+                System.out.println("Sent to client: " + message);
             }
         }
 
@@ -148,85 +310,14 @@ public class CloudControllerDashboard extends JPanel {
                 if (out != null) out.close();
                 if (in != null) in.close();
                 if (clientSocket != null) clientSocket.close();
+                clientHandlers.remove(this);
+                System.out.println("Client handler closed");
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }
     }
- 
-    public CloudControllerDashboard() {
-    	startSocketServer();
-    	Runtime.getRuntime().addShutdownHook(new Thread(this::stopSocketServer));
-        
-        setLayout(new BorderLayout());
-        setBackground(Color.LIGHT_GRAY); // Slightly change background for distinction
-        // Top panel with title
-        JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
-         topPanel.setBackground(new Color(43, 43, 43));
-        JLabel titleLabel = new JLabel("Cloud Controller Dashboard", SwingConstants.CENTER);
-        titleLabel.setFont(new Font("Arial", Font.BOLD, 20));
-         titleLabel.setForeground(Color.WHITE);
-        topPanel.add(titleLabel);
-        add(topPanel, BorderLayout.NORTH);
-
-        // Tabbed pane for different views
-        JTabbedPane tabbedPane = new JTabbedPane();
-        tabbedPane.setFont(new Font("Arial", Font.BOLD, 14));
-
-        // --- Pending Requests Tab ---
-        JPanel pendingRequestPanel = createPendingRequestPanel();
-        tabbedPane.addTab("Pending Approvals", UIManager.getIcon("OptionPane.questionIcon"), pendingRequestPanel);
-
-        // --- Jobs Tab ---
-        JPanel jobPanel = createJobPanel();
-        tabbedPane.addTab("Jobs", UIManager.getIcon("FileView.hardDriveIcon"), jobPanel);
-
-        // --- Users Tab ---
-        JPanel userPanel = createUserPanel();
-        tabbedPane.addTab("Users", UIManager.getIcon("FileChooser.detailsViewIcon"), userPanel);
-
-        // --- Allocations Tab ---
-        JPanel allocationPanel = createAllocationPanel();
-        tabbedPane.addTab("Allocations", UIManager.getIcon("Tree.openIcon"), allocationPanel);
-
-        // --- Schedule Tab ---
-        JPanel schedulePanel = createSchedulePanel();
-        tabbedPane.addTab("Job Schedule", UIManager.getIcon("Tree.leafIcon"), schedulePanel);
-
-        add(tabbedPane, BorderLayout.CENTER);
-
-        // Load initial data
-        refreshAllData();
-                loadPendingRequestData();
-
-        tabbedPane.setSelectedIndex(0);
-        pendingRequestsRefreshTimer = new Timer(5000, e -> loadPendingRequestData());
-pendingRequestsRefreshTimer.start();
-        // Add tab change listener to refresh relevant data
-        tabbedPane.addChangeListener(e -> {
-            int selectedIndex = tabbedPane.getSelectedIndex();
-            switch (selectedIndex) {
-                case 0: // Pending Approvals
-                    loadPendingRequestData();
-                    break;
-                case 1: // Jobs
-                    loadJobData();
-                    break;
-                case 2: // Users
-                    loadUserData();
-                    break;
-                case 3: // Allocations
-                    loadAllocationData();
-                    loadAllocationDropdowns(); // Refresh dropdowns too
-                    break;
-                case 4: // Schedule
-                    loadScheduleData();
-                    updateQueueStatus();
-                    break;
-            }
-        });
-    }
-
+    
     // --- Panel Creation Methods ---
 
     private JPanel createPendingRequestPanel() {
@@ -241,20 +332,21 @@ pendingRequestsRefreshTimer.start();
         };
         pendingRequestTable = new JTable(pendingRequestTableModel);
         setupTableAppearance(pendingRequestTable);
-         // Adjust column widths
-         TableColumnModel colModel = pendingRequestTable.getColumnModel();
-         colModel.getColumn(0).setPreferredWidth(60);  colModel.getColumn(0).setMaxWidth(80); // Req ID
-         colModel.getColumn(1).setPreferredWidth(80);  colModel.getColumn(1).setMaxWidth(100);// Type
-         colModel.getColumn(2).setPreferredWidth(180);                                       // Submitted By
-         colModel.getColumn(3).setPreferredWidth(400);                                       // Data Details
-         pendingRequestTable.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN); // Allow last column to take remaining space
+        
+        // Adjust column widths
+        TableColumnModel colModel = pendingRequestTable.getColumnModel();
+        colModel.getColumn(0).setPreferredWidth(60);  colModel.getColumn(0).setMaxWidth(80); // Req ID
+        colModel.getColumn(1).setPreferredWidth(80);  colModel.getColumn(1).setMaxWidth(100); // Type
+        colModel.getColumn(2).setPreferredWidth(180); // Submitted By
+        colModel.getColumn(3).setPreferredWidth(400); // Data Details
+        pendingRequestTable.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
 
         JScrollPane scrollPane = new JScrollPane(pendingRequestTable);
         panel.add(scrollPane, BorderLayout.CENTER);
 
         // Action panel
         JPanel actionPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 5));
-         actionPanel.setBackground(Color.WHITE);
+        actionPanel.setBackground(Color.WHITE);
         approveRequestButton = new JButton("Approve Selected", UIManager.getIcon("OptionPane.informationIcon"));
         rejectRequestButton = new JButton("Reject Selected", UIManager.getIcon("OptionPane.errorIcon"));
         JButton refreshPendingButton = new JButton("Refresh List", UIManager.getIcon("Tree.closedIcon"));
@@ -273,8 +365,8 @@ pendingRequestsRefreshTimer.start();
 
     private JPanel createJobPanel() {
         JPanel jobPanel = new JPanel(new BorderLayout(10, 10));
-         jobPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-         jobPanel.setBackground(Color.WHITE);
+        jobPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        jobPanel.setBackground(Color.WHITE);
 
         String[] jobColumns = {"Job ID", "Job Name", "Job Owner ID", "Duration", "Deadline", "Status", "Created At"};
         jobTableModel = new DefaultTableModel(jobColumns, 0) {
@@ -282,10 +374,10 @@ pendingRequestsRefreshTimer.start();
         };
         jobTable = new JTable(jobTableModel);
         setupTableAppearance(jobTable);
-         jobPanel.add(new JScrollPane(jobTable), BorderLayout.CENTER);
+        jobPanel.add(new JScrollPane(jobTable), BorderLayout.CENTER);
 
         JPanel jobActionPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 5));
-         jobActionPanel.setBackground(Color.WHITE);
+        jobActionPanel.setBackground(Color.WHITE);
         addJobButton = new JButton("Add Job (Direct)");
         editJobButton = new JButton("Edit Job");
         deleteJobButton = new JButton("Delete Job");
@@ -304,10 +396,10 @@ pendingRequestsRefreshTimer.start();
         return jobPanel;
     }
 
-     private JPanel createUserPanel() {
+    private JPanel createUserPanel() {
         JPanel userPanel = new JPanel(new BorderLayout(10, 10));
-         userPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-         userPanel.setBackground(Color.WHITE);
+        userPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        userPanel.setBackground(Color.WHITE);
 
         String[] userColumns = {"User ID", "Full Name", "Email", "Roles"};
         userTableModel = new DefaultTableModel(userColumns, 0) {
@@ -318,16 +410,16 @@ pendingRequestsRefreshTimer.start();
         userPanel.add(new JScrollPane(userTable), BorderLayout.CENTER);
 
         JPanel userActionPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 5));
-         userActionPanel.setBackground(Color.WHITE);
+        userActionPanel.setBackground(Color.WHITE);
         addUserButton = new JButton("Add User");
         editUserButton = new JButton("Edit User");
         deleteUserButton = new JButton("Delete User");
-         JButton refreshUsersButton = new JButton("Refresh Users");
+        JButton refreshUsersButton = new JButton("Refresh Users");
 
         addUserButton.addActionListener(e -> addNewUser());
         editUserButton.addActionListener(e -> editSelectedUser());
         deleteUserButton.addActionListener(e -> deleteSelectedUser());
-         refreshUsersButton.addActionListener(e -> loadUserData());
+        refreshUsersButton.addActionListener(e -> loadUserData());
 
         userActionPanel.add(addUserButton);
         userActionPanel.add(editUserButton);
@@ -338,9 +430,9 @@ pendingRequestsRefreshTimer.start();
     }
 
     private JPanel createAllocationPanel() {
-         JPanel allocationPanel = new JPanel(new BorderLayout(10, 10));
-         allocationPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-         allocationPanel.setBackground(Color.WHITE);
+        JPanel allocationPanel = new JPanel(new BorderLayout(10, 10));
+        allocationPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        allocationPanel.setBackground(Color.WHITE);
 
         String[] allocationColumns = {"Alloc ID", "User ID", "Job ID"};
         allocationTableModel = new DefaultTableModel(allocationColumns, 0){
@@ -363,14 +455,14 @@ pendingRequestsRefreshTimer.start();
 
         allocateButton = new JButton("Allocate User to Job");
         removeAllocationButton = new JButton("Remove Selected Allocation");
-         JButton refreshAllocationsButton = new JButton("Refresh Allocations");
+        JButton refreshAllocationsButton = new JButton("Refresh Allocations");
 
-         allocateButton.addActionListener(e -> allocateUserToJob());
-         removeAllocationButton.addActionListener(e -> removeSelectedAllocation());
-         refreshAllocationsButton.addActionListener(e -> {
-             loadAllocationData();
-             loadAllocationDropdowns();
-         });
+        allocateButton.addActionListener(e -> allocateUserToJob());
+        removeAllocationButton.addActionListener(e -> removeSelectedAllocation());
+        refreshAllocationsButton.addActionListener(e -> {
+            loadAllocationData();
+            loadAllocationDropdowns();
+        });
 
         gbc.gridx = 0; gbc.gridy = 0; allocationControls.add(new JLabel("Select User:"), gbc);
         gbc.gridx = 1; gbc.gridy = 0; gbc.weightx=1.0; gbc.fill=GridBagConstraints.HORIZONTAL; allocationControls.add(userDropdown, gbc);
@@ -388,34 +480,34 @@ pendingRequestsRefreshTimer.start();
 
     private JPanel createSchedulePanel() {
         JPanel schedulePanel = new JPanel(new BorderLayout(10, 10));
-         schedulePanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-         schedulePanel.setBackground(Color.WHITE);
+        schedulePanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        schedulePanel.setBackground(Color.WHITE);
 
         JPanel statusPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
-         statusPanel.setBackground(Color.WHITE);
+        statusPanel.setBackground(Color.WHITE);
         queueStatusLabel = new JLabel("Queue Status: Loading...", SwingConstants.CENTER);
         queueStatusLabel.setFont(new Font("Arial", Font.BOLD, 14));
-         queueStatusLabel.setForeground(new Color(0, 102, 204));
+        queueStatusLabel.setForeground(new Color(0, 102, 204));
         statusPanel.add(queueStatusLabel);
         schedulePanel.add(statusPanel, BorderLayout.NORTH);
 
         String[] scheduleColumns = {"Job ID", "Job Name", "Duration", "Time Remaining", "Status", "Est. Completion Time"};
         scheduleTableModel = new DefaultTableModel(scheduleColumns, 0) {
-             @Override public boolean isCellEditable(int row, int col) { return false; }
+            @Override public boolean isCellEditable(int row, int col) { return false; }
         };
         scheduleTable = new JTable(scheduleTableModel);
         setupTableAppearance(scheduleTable);
-         schedulePanel.add(new JScrollPane(scheduleTable), BorderLayout.CENTER);
+        schedulePanel.add(new JScrollPane(scheduleTable), BorderLayout.CENTER);
 
         JPanel scheduleControlPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 5));
-         scheduleControlPanel.setBackground(Color.WHITE);
+        scheduleControlPanel.setBackground(Color.WHITE);
         calculateTimesButton = new JButton("Recalculate Schedule");
         assignVehiclesButton = new JButton("Assign Vehicles");
         advanceQueueButton = new JButton("Advance Job Queue");
 
-         calculateTimesButton.addActionListener(e -> calculateCompletionTimes());
-         assignVehiclesButton.addActionListener(e -> assignVehiclesToJobs());
-         advanceQueueButton.addActionListener(e -> advanceJobQueue());
+        calculateTimesButton.addActionListener(e -> calculateCompletionTimes());
+        assignVehiclesButton.addActionListener(e -> assignVehiclesToJobs());
+        advanceQueueButton.addActionListener(e -> advanceJobQueue());
 
         scheduleControlPanel.add(calculateTimesButton);
         scheduleControlPanel.add(assignVehiclesButton);
@@ -426,8 +518,7 @@ pendingRequestsRefreshTimer.start();
 
     // --- Data Loading and Refresh Methods ---
 
-     private void refreshAllData() {
-        loadPendingRequestData();
+    private void refreshAllData() {
         loadJobData();
         loadUserData();
         loadAllocationData();
@@ -438,48 +529,54 @@ pendingRequestsRefreshTimer.start();
 
     private void loadPendingRequestData() {
         pendingRequestTableModel.setRowCount(0);
-        List<PendingRequest> requests = cloudControllerDAO.getPendingRequests();
-        for (PendingRequest req : requests) {
-            String details = "";
-            if (req.getData() instanceof Job) {
-                Job job = (Job) req.getData();
-                details = String.format("ID: %s, Name: %s, Duration: %s", job.getJobId(), job.getJobName(), job.getDuration());
-            } else if (req.getData() instanceof Vehicle) {
-                Vehicle vehicle = (Vehicle) req.getData();
-                details = String.format("VIN: %s, %s %s (%s)", vehicle.getVin(), vehicle.getMake(), vehicle.getModel(), vehicle.getYear());
-            }
-            pendingRequestTableModel.addRow(new Object[]{
+        
+        synchronized(pendingRequests) {
+            for (PendingRequest req : pendingRequests) {
+                String details = "";
+                if (req.getData() instanceof Vehicle) {
+                    Vehicle vehicle = (Vehicle) req.getData();
+                    details = String.format("VIN: %s, %s %s (%s)", 
+                        vehicle.getVin(), vehicle.getMake(), vehicle.getModel(), vehicle.getYear());
+                } else if (req.getData() instanceof Job) {
+                    Job job = (Job) req.getData();
+                    details = String.format("ID: %s, Name: %s, Duration: %s", 
+                        job.getJobId(), job.getJobName(), job.getDuration());
+                }
+                
+                pendingRequestTableModel.addRow(new Object[]{
                     req.getRequestId(),
                     req.getType(),
                     req.getSubmittedByInfo(),
                     details
-            });
+                });
+            }
         }
-         boolean hasRequests = pendingRequestTableModel.getRowCount() > 0;
-         approveRequestButton.setEnabled(hasRequests);
-         rejectRequestButton.setEnabled(hasRequests);
+        
+        boolean hasRequests = pendingRequestTableModel.getRowCount() > 0;
+        approveRequestButton.setEnabled(hasRequests);
+        rejectRequestButton.setEnabled(hasRequests);
     }
 
     private void loadJobData() {
         jobTableModel.setRowCount(0);
-         Map<String, String> currentStates = cloudControllerDAO.loadJobStates();
+        Map<String, String> currentStates = cloudControllerDAO.loadJobStates();
         List<Job> jobs = jobDAO.getAllJobs();
 
-         jobs.sort(Comparator.comparing(Job::getCreatedTimestamp));
+        jobs.sort(Comparator.comparing(Job::getCreatedTimestamp));
 
         for (Job job : jobs) {
-             String displayStatus = CloudControllerDAO.STATE_PENDING_APPROVAL.equals(job.getStatus())
-                                   ? CloudControllerDAO.STATE_PENDING_APPROVAL
-                                   : currentStates.getOrDefault(job.getJobId(), job.getStatus());
+            String displayStatus = CloudControllerDAO.STATE_PENDING_APPROVAL.equals(job.getStatus())
+                               ? CloudControllerDAO.STATE_PENDING_APPROVAL
+                               : currentStates.getOrDefault(job.getJobId(), job.getStatus());
 
             jobTableModel.addRow(new Object[]{
-                    job.getJobId(),
-                    job.getJobName(),
-                    job.getJobOwnerId(),
-                    job.getDuration(),
-                    job.getDeadline(),
-                    displayStatus,
-                    job.getCreatedTimestamp()
+                job.getJobId(),
+                job.getJobName(),
+                job.getJobOwnerId(),
+                job.getDuration(),
+                job.getDeadline(),
+                displayStatus,
+                job.getCreatedTimestamp()
             });
         }
     }
@@ -512,11 +609,11 @@ pendingRequestsRefreshTimer.start();
     private void loadScheduleData() {
         scheduleTableModel.setRowCount(0);
         Map<String, String> completionTimes = cloudControllerDAO.loadSchedule();
-         Map<String, String> currentStates = cloudControllerDAO.loadJobStates();
+        Map<String, String> currentStates = cloudControllerDAO.loadJobStates();
 
-         List<Job> jobs = jobDAO.getAllJobs().stream()
-                          .filter(j -> !CloudControllerDAO.STATE_PENDING_APPROVAL.equals(j.getStatus()))
-                          .collect(Collectors.toList());
+        List<Job> jobs = jobDAO.getAllJobs().stream()
+                       .filter(j -> !CloudControllerDAO.STATE_PENDING_APPROVAL.equals(j.getStatus()))
+                       .collect(Collectors.toList());
 
         jobs.sort(Comparator.comparing(Job::getCreatedTimestamp));
 
@@ -533,31 +630,40 @@ pendingRequestsRefreshTimer.start();
                 runningTotalMinutes += durationMinutes;
                 long totalHours = runningTotalMinutes / 60;
                 long totalMinutesPart = runningTotalMinutes % 60;
-                 timeToCompleteStr = totalHours > 0
-                        ? String.format("%dh %dm", totalHours, totalMinutesPart)
-                        : String.format("%dm", totalMinutesPart);
+                timeToCompleteStr = totalHours > 0
+                    ? String.format("%dh %dm", totalHours, totalMinutesPart)
+                    : String.format("%dm", totalMinutesPart);
             } else if (CloudControllerDAO.STATE_COMPLETED.equals(status)) {
-                 timeToCompleteStr = "Completed";
+                timeToCompleteStr = "Completed";
             }
 
             String completionTime = completionTimes.getOrDefault(job.getJobId(), "Not calculated");
 
             scheduleTableModel.addRow(new Object[]{
-                    job.getJobId(),
-                    job.getJobName(),
-                    job.getDuration(),
-                    timeToCompleteStr,
-                    status,
-                    completionTime
+                job.getJobId(),
+                job.getJobName(),
+                job.getDuration(),
+                timeToCompleteStr,
+                status,
+                completionTime
             });
         }
     }
 
     private void updateQueueStatus() {
         Map<String, Integer> summary = cloudControllerDAO.getJobQueueSummary();
+        
+        // Add pending count from our in-memory list
+        int pendingCount;
+        synchronized(pendingRequests) {
+            pendingCount = (int) pendingRequests.stream()
+                .filter(r -> r.getType() == PendingRequest.RequestType.JOB)
+                .count();
+        }
+        
         queueStatusLabel.setText(String.format(
-             "Queue Status: %d Pending | %d Queued | %d In Progress | %d Completed",
-            summary.getOrDefault(CloudControllerDAO.STATE_PENDING_APPROVAL, 0),
+            "Queue Status: %d Pending | %d Queued | %d In Progress | %d Completed",
+            pendingCount,
             summary.getOrDefault(CloudControllerDAO.STATE_QUEUED, 0),
             summary.getOrDefault(CloudControllerDAO.STATE_PROGRESS, 0),
             summary.getOrDefault(CloudControllerDAO.STATE_COMPLETED, 0)
@@ -574,10 +680,10 @@ pendingRequestsRefreshTimer.start();
             userDropdown.addItem(user.getUserId() + " - " + user.getFullName());
         }
 
-         List<Job> jobs = jobDAO.getAllJobs().stream()
-                          .filter(j -> !CloudControllerDAO.STATE_PENDING_APPROVAL.equals(j.getStatus()))
-                          .sorted(Comparator.comparing(Job::getJobId))
-                          .collect(Collectors.toList());
+        List<Job> jobs = jobDAO.getAllJobs().stream()
+                       .filter(j -> !CloudControllerDAO.STATE_PENDING_APPROVAL.equals(j.getStatus()))
+                       .sorted(Comparator.comparing(Job::getJobId))
+                       .collect(Collectors.toList());
         for (Job job : jobs) {
             jobDropdown.addItem(job.getJobId() + " - " + job.getJobName());
         }
@@ -585,78 +691,189 @@ pendingRequestsRefreshTimer.start();
 
     // --- Action Methods ---
 
-     private void approveSelectedRequest() {
+    private void approveSelectedRequest() {
         int selectedRow = pendingRequestTable.getSelectedRow();
         if (selectedRow != -1) {
             int requestId = (int) pendingRequestTableModel.getValueAt(selectedRow, 0);
-
-            approveRequestButton.setEnabled(false);
-            rejectRequestButton.setEnabled(false);
-
-            Runnable refreshCallback = () -> {
-                 loadPendingRequestData();
-                 loadJobData();
-                 loadScheduleData();
-                 updateQueueStatus();
-                 loadAllocationDropdowns();
-                 boolean hasRequests = pendingRequestTableModel.getRowCount() > 0;
-                 approveRequestButton.setEnabled(hasRequests);
-                 rejectRequestButton.setEnabled(hasRequests);
-             };
-
-            cloudControllerDAO.approveRequest(requestId, refreshCallback);
-            // Result message is now handled via SwingUtilities.invokeLater within the DAO
+            String typeStr = (String) pendingRequestTableModel.getValueAt(selectedRow, 1);
+            
+            // Find the request in our in-memory list
+            PendingRequest requestToApprove = null;
+            synchronized(pendingRequests) {
+                for (PendingRequest req : pendingRequests) {
+                    if (req.getRequestId() == requestId) {
+                        requestToApprove = req;
+                        break;
+                    }
+                }
+            }
+            
+            if (requestToApprove != null) {
+                // Process the approval based on type
+                if (requestToApprove.getType() == PendingRequest.RequestType.VEHICLE) {
+                    Vehicle vehicle = (Vehicle) requestToApprove.getData();
+                    VehicleDAO vehicleDAO = new VehicleDAO();
+                    
+                    // Save to database directly
+                    boolean saved = vehicleDAO.addVehicle(vehicle);
+                    
+                    if (saved) {
+                        // Remove from pending list
+                        synchronized(pendingRequests) {
+                            pendingRequests.remove(requestToApprove);
+                        }
+                        
+                        // Send approval notification to clients
+                        broadcastApprovalStatus(vehicle.getVin(), true);
+                        
+                        // Update UI
+                        loadPendingRequestData();
+                        JOptionPane.showMessageDialog(this, 
+                            "Vehicle approved and saved to database.",
+                            "Approval Success",
+                            JOptionPane.INFORMATION_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(this, 
+                            "Error saving vehicle to database.",
+                            "Database Error",
+                            JOptionPane.ERROR_MESSAGE);
+                    }
+                } else if (requestToApprove.getType() == PendingRequest.RequestType.JOB) {
+                    Job job = (Job) requestToApprove.getData();
+                    JobDAO jobDAO = new JobDAO();
+                    
+                    // Set status to Queued
+                    job.setStatus(CloudControllerDAO.STATE_QUEUED);
+                    
+                    // Save to database
+                    boolean saved = jobDAO.addJob(job);
+                    
+                    if (saved) {
+                        // Remove from pending list
+                        synchronized(pendingRequests) {
+                            pendingRequests.remove(requestToApprove);
+                        }
+                        
+                        // Update UI
+                        loadPendingRequestData();
+                        loadJobData();
+                        loadScheduleData();
+                        updateQueueStatus();
+                        
+                        JOptionPane.showMessageDialog(this, 
+                            "Job approved and saved to database.",
+                            "Approval Success",
+                            JOptionPane.INFORMATION_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(this, 
+                            "Error saving job to database.",
+                            "Database Error",
+                            JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            } else {
+                JOptionPane.showMessageDialog(this, 
+                    "Request not found in pending list.",
+                    "Error",
+                    JOptionPane.ERROR_MESSAGE);
+            }
         } else {
-            JOptionPane.showMessageDialog(this, "Please select a request from the 'Pending Approvals' table first.", "Selection Required", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, 
+                "Please select a request to approve.",
+                "Selection Required",
+                JOptionPane.WARNING_MESSAGE);
         }
-        
-        
-        
     }
 
     private void rejectSelectedRequest() {
         int selectedRow = pendingRequestTable.getSelectedRow();
         if (selectedRow != -1) {
-             int requestId = (int) pendingRequestTableModel.getValueAt(selectedRow, 0);
-             int confirm = JOptionPane.showConfirmDialog(this,
-                "Are you sure you want to reject Request ID " + requestId + "?\nThe submitted data will be discarded.",
+            int requestId = (int) pendingRequestTableModel.getValueAt(selectedRow, 0);
+            String typeStr = (String) pendingRequestTableModel.getValueAt(selectedRow, 1);
+            String details = (String) pendingRequestTableModel.getValueAt(selectedRow, 3);
+            
+            // Extract VIN if it's a vehicle request
+            String vin = null;
+            if ("VEHICLE".equals(typeStr) && details.contains("VIN:")) {
+                vin = details.substring(details.indexOf("VIN:") + 5);
+                if (vin.contains(",")) {
+                    vin = vin.substring(0, vin.indexOf(",")).trim();
+                } else if (vin.contains(")")) {
+                    vin = vin.substring(0, vin.indexOf(")")).trim();
+                }
+            }
+            
+            int confirm = JOptionPane.showConfirmDialog(this,
+                "Are you sure you want to reject this request?",
                 "Confirm Rejection",
                 JOptionPane.YES_NO_OPTION,
                 JOptionPane.WARNING_MESSAGE);
-
-             if (confirm == JOptionPane.YES_OPTION) {
-                 if (cloudControllerDAO.rejectRequest(requestId)) {
-                     JOptionPane.showMessageDialog(this, "Request ID " + requestId + " rejected and removed.", "Rejection Success", JOptionPane.INFORMATION_MESSAGE);
-                     loadPendingRequestData();
-                     updateQueueStatus();
-                 } else {
-                     JOptionPane.showMessageDialog(this, "Failed to reject request ID " + requestId + ". It might have been processed already.", "Rejection Error", JOptionPane.ERROR_MESSAGE);
-                     loadPendingRequestData();
-                 }
-             }
+                
+            if (confirm == JOptionPane.YES_OPTION) {
+                // Find and remove the request
+                boolean removed = false;
+                synchronized(pendingRequests) {
+                    Iterator<PendingRequest> iterator = pendingRequests.iterator();
+                    while (iterator.hasNext()) {
+                        PendingRequest req = iterator.next();
+                        if (req.getRequestId() == requestId) {
+                            iterator.remove();
+                            removed = true;
+                            break;
+                        }
+                    }
+                }
+                
+                if (removed) {
+                    // Notify client if it's a vehicle request
+                    if (vin != null) {
+                        broadcastApprovalStatus(vin, false);
+                    }
+                    
+                    // Update UI
+                    loadPendingRequestData();
+                    updateQueueStatus();
+                    JOptionPane.showMessageDialog(this,
+                        "Request rejected and removed.",
+                        "Rejection Complete",
+                        JOptionPane.INFORMATION_MESSAGE);
+                } else {
+                    JOptionPane.showMessageDialog(this,
+                        "Error: Request not found in pending list.",
+                        "Rejection Error",
+                        JOptionPane.ERROR_MESSAGE);
+                }
+            }
         } else {
-            JOptionPane.showMessageDialog(this, "Please select a request from the 'Pending Approvals' table first.", "Selection Required", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this,
+                "Please select a request to reject.",
+                "Selection Required",
+                JOptionPane.WARNING_MESSAGE);
         }
     }
 
     private void calculateCompletionTimes() {
-        cloudControllerDAO.calculateCompletionTimes();
-        loadScheduleData();
-        loadJobData();
-        updateQueueStatus();
-        JOptionPane.showMessageDialog(this, "Job schedule and completion times recalculated.", "Schedule Updated", JOptionPane.INFORMATION_MESSAGE);
+        Map<String, String> completionTimes = cloudControllerDAO.calculateCompletionTimes();
+        if (completionTimes.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "No jobs found to schedule.", "Schedule", JOptionPane.INFORMATION_MESSAGE);
+        } else {
+            loadScheduleData();
+            loadJobData();
+            updateQueueStatus();
 
-        String output = cloudControllerDAO.generateSchedulingOutput();
-        JTextArea textArea = new JTextArea(output);
-        textArea.setEditable(false);
-        textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        JScrollPane scrollPane = new JScrollPane(textArea);
-        scrollPane.setPreferredSize(new Dimension(650, 300));
+            // Show the calculation results
+            String output = cloudControllerDAO.generateSchedulingOutput();
+            JTextArea textArea = new JTextArea(output);
+            textArea.setEditable(false);
+            textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+            JScrollPane scrollPane = new JScrollPane(textArea);
+            scrollPane.setPreferredSize(new Dimension(600, 300));
 
-        JOptionPane.showMessageDialog(this,
-                scrollPane,
-                "Job Scheduling Results (FIFO)",
-                JOptionPane.INFORMATION_MESSAGE);
+            JOptionPane.showMessageDialog(this,
+                    scrollPane,
+                    "Job Scheduling Results (FIFO)",
+                    JOptionPane.INFORMATION_MESSAGE);
+        }
     }
 
     private void assignVehiclesToJobs() {
@@ -666,7 +883,7 @@ pendingRequestsRefreshTimer.start();
             loadScheduleData();
             updateQueueStatus();
             JOptionPane.showMessageDialog(this,
-                    "Assigned available vehicles to " + assignmentCount + " job(s). Statuses updated to 'In Progress'.",
+                    "Assigned vehicles to " + assignmentCount + " job(s). Statuses updated to 'In Progress'.",
                     "Vehicle Assignment Success",
                     JOptionPane.INFORMATION_MESSAGE);
         } else {
@@ -697,7 +914,7 @@ pendingRequestsRefreshTimer.start();
 
     // --- Direct Add/Edit/Delete Methods ---
 
-     private void addNewJob() {
+    private void addNewJob() {
         JPanel panel = new JPanel(new GridBagLayout());
         GridBagConstraints gbcDialog = new GridBagConstraints();
         gbcDialog.insets = new Insets(5,5,5,5); gbcDialog.anchor = GridBagConstraints.WEST;
@@ -708,7 +925,7 @@ pendingRequestsRefreshTimer.start();
         SpinnerNumberModel hoursModel = new SpinnerNumberModel(0, 0, 99, 1); JSpinner hoursSpinner = new JSpinner(hoursModel);
         SpinnerNumberModel minutesModel = new SpinnerNumberModel(0, 0, 59, 1); JSpinner minutesSpinner = new JSpinner(minutesModel);
         SpinnerNumberModel secondsModel = new SpinnerNumberModel(0, 0, 59, 1); JSpinner secondsSpinner = new JSpinner(secondsModel);
-         JTextField deadlineField = new JTextField(10); deadlineField.setText(java.time.LocalDate.now().plusDays(7).toString());
+        JTextField deadlineField = new JTextField(10); deadlineField.setText(java.time.LocalDate.now().plusDays(7).toString());
 
         gbcDialog.gridx=0; gbcDialog.gridy=0; panel.add(new JLabel("Job ID:"), gbcDialog); gbcDialog.gridx=1; panel.add(jobIdField, gbcDialog);
         gbcDialog.gridx=0; gbcDialog.gridy=1; panel.add(new JLabel("Job Name:"), gbcDialog); gbcDialog.gridx=1; panel.add(jobNameField, gbcDialog);
@@ -746,15 +963,15 @@ pendingRequestsRefreshTimer.start();
             Job jobToEdit = jobDAO.getAllJobs().stream().filter(j -> j.getJobId().equals(jobId)).findFirst().orElse(null);
             if (jobToEdit == null) { JOptionPane.showMessageDialog(this, "Could not find job details.", "Error", JOptionPane.ERROR_MESSAGE); return; }
 
-             JTextField nameField = new JTextField(jobToEdit.getJobName(), 20);
-             String[] statuses = {CloudControllerDAO.STATE_QUEUED, CloudControllerDAO.STATE_PROGRESS, CloudControllerDAO.STATE_COMPLETED};
-             JComboBox<String> statusCombo = new JComboBox<>(statuses);
-             statusCombo.setSelectedItem(jobToEdit.getStatus());
-             // Add other fields for editing as needed (duration, deadline etc.)
+            JTextField nameField = new JTextField(jobToEdit.getJobName(), 20);
+            String[] statuses = {CloudControllerDAO.STATE_QUEUED, CloudControllerDAO.STATE_PROGRESS, CloudControllerDAO.STATE_COMPLETED};
+            JComboBox<String> statusCombo = new JComboBox<>(statuses);
+            statusCombo.setSelectedItem(jobToEdit.getStatus());
+            // Add other fields for editing as needed (duration, deadline etc.)
 
-             JPanel panel = new JPanel(new GridLayout(0,2,5,5));
-             panel.add(new JLabel("Job Name:")); panel.add(nameField);
-             panel.add(new JLabel("Status:")); panel.add(statusCombo);
+            JPanel panel = new JPanel(new GridLayout(0,2,5,5));
+            panel.add(new JLabel("Job Name:")); panel.add(nameField);
+            panel.add(new JLabel("Status:")); panel.add(statusCombo);
 
             int result = JOptionPane.showConfirmDialog(this, panel, "Edit Job " + jobId, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
             if (result == JOptionPane.OK_OPTION) {
@@ -774,16 +991,13 @@ pendingRequestsRefreshTimer.start();
             String jobId = (String) jobTableModel.getValueAt(selectedRow, 0);
             String status = (String) jobTableModel.getValueAt(selectedRow, 5);
 
-             if (CloudControllerDAO.STATE_PENDING_APPROVAL.equals(status)) {
-                 JOptionPane.showMessageDialog(this, "Cannot delete pending job. Reject it instead.", "Action Not Allowed", JOptionPane.WARNING_MESSAGE); return;
-             }
+            if (CloudControllerDAO.STATE_PENDING_APPROVAL.equals(status)) {
+                JOptionPane.showMessageDialog(this, "Cannot delete pending job. Reject it instead.", "Action Not Allowed", JOptionPane.WARNING_MESSAGE); return;
+            }
             int confirm = JOptionPane.showConfirmDialog(this, "Delete Job ID '" + jobId + "'?", "Confirm Deletion", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
             if (confirm == JOptionPane.YES_OPTION) {
                 if (jobDAO.deleteJob(jobId)) {
                     JOptionPane.showMessageDialog(this, "Job '" + jobId + "' deleted.", "Success", JOptionPane.INFORMATION_MESSAGE);
-                    // Clean up state/schedule maps is good practice, though recalc handles it
-                     Map<String, String> states = cloudControllerDAO.loadJobStates(); states.remove(jobId); //cloudControllerDAO.saveJobStates(states);
-                     Map<String, String> schedule = cloudControllerDAO.loadSchedule(); schedule.remove(jobId); //cloudControllerDAO.saveSchedule(schedule);
                     refreshAllData();
                 } else { JOptionPane.showMessageDialog(this, "Failed to delete job '" + jobId + "'.", "Error", JOptionPane.ERROR_MESSAGE); }
             }
@@ -794,12 +1008,12 @@ pendingRequestsRefreshTimer.start();
         JTextField nameField = new JTextField(20); JTextField emailField = new JTextField(20); JPasswordField passField = new JPasswordField(20);
         JPanel panel = new JPanel(new GridLayout(0, 2, 5, 5));
         panel.add(new JLabel("Full Name:")); panel.add(nameField); panel.add(new JLabel("Email:")); panel.add(emailField); panel.add(new JLabel("Password:")); panel.add(passField);
-         int result = JOptionPane.showConfirmDialog(this, panel, "Add New User", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-         if (result == JOptionPane.OK_OPTION) {
-             String fullName = nameField.getText().trim(); String email = emailField.getText().trim(); String password = new String(passField.getPassword());
-             if (fullName.isEmpty() || email.isEmpty() || password.isEmpty() || !email.contains("@")) {
-                 JOptionPane.showMessageDialog(this, "Valid Name, Email, and Password required.", "Input Error", JOptionPane.ERROR_MESSAGE); return;
-             }
+        int result = JOptionPane.showConfirmDialog(this, panel, "Add New User", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (result == JOptionPane.OK_OPTION) {
+            String fullName = nameField.getText().trim(); String email = emailField.getText().trim(); String password = new String(passField.getPassword());
+            if (fullName.isEmpty() || email.isEmpty() || password.isEmpty() || !email.contains("@")) {
+                JOptionPane.showMessageDialog(this, "Valid Name, Email, and Password required.", "Input Error", JOptionPane.ERROR_MESSAGE); return;
+            }
             User user = new User(fullName, email, "vehicle_owner,job_owner", password); // Default roles
             if (userDAO.addUser(user)) { JOptionPane.showMessageDialog(this, "User added.", "Success", JOptionPane.INFORMATION_MESSAGE); loadUserData(); loadAllocationDropdowns(); }
             else { JOptionPane.showMessageDialog(this, "Failed to add user (Email might exist).", "Error", JOptionPane.ERROR_MESSAGE); }
@@ -811,13 +1025,13 @@ pendingRequestsRefreshTimer.start();
         if (selectedRow != -1) {
             int userId = (int) userTableModel.getValueAt(selectedRow, 0); User userToEdit = userDAO.getUserById(userId);
             if (userToEdit == null) { JOptionPane.showMessageDialog(this, "Could not find user details.", "Error", JOptionPane.ERROR_MESSAGE); return; }
-             JTextField nameField = new JTextField(userToEdit.getFullName(), 20); JTextField emailField = new JTextField(userToEdit.getEmail(), 20);
-             JPanel panel = new JPanel(new GridLayout(0, 2, 5, 5)); panel.add(new JLabel("Full Name:")); panel.add(nameField); panel.add(new JLabel("Email:")); panel.add(emailField);
+            JTextField nameField = new JTextField(userToEdit.getFullName(), 20); JTextField emailField = new JTextField(userToEdit.getEmail(), 20);
+            JPanel panel = new JPanel(new GridLayout(0, 2, 5, 5)); panel.add(new JLabel("Full Name:")); panel.add(nameField); panel.add(new JLabel("Email:")); panel.add(emailField);
             int result = JOptionPane.showConfirmDialog(this, panel, "Edit User " + userId, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
             if (result == JOptionPane.OK_OPTION) {
-                 String newName = nameField.getText().trim(); String newEmail = emailField.getText().trim();
-                 if (newName.isEmpty() || newEmail.isEmpty() || !newEmail.contains("@")) { JOptionPane.showMessageDialog(this, "Valid Name and Email required.", "Input Error", JOptionPane.ERROR_MESSAGE); return; }
-                 userToEdit.setFullName(newName); userToEdit.setEmail(newEmail);
+                String newName = nameField.getText().trim(); String newEmail = emailField.getText().trim();
+                if (newName.isEmpty() || newEmail.isEmpty() || !newEmail.contains("@")) { JOptionPane.showMessageDialog(this, "Valid Name and Email required.", "Input Error", JOptionPane.ERROR_MESSAGE); return; }
+                userToEdit.setFullName(newName); userToEdit.setEmail(newEmail);
                 if (userDAO.updateUser(userToEdit)) { JOptionPane.showMessageDialog(this, "User updated.", "Success", JOptionPane.INFORMATION_MESSAGE); loadUserData(); loadAllocationDropdowns(); }
                 else { JOptionPane.showMessageDialog(this, "Failed to update user.", "Error", JOptionPane.ERROR_MESSAGE); }
             }
@@ -828,12 +1042,12 @@ pendingRequestsRefreshTimer.start();
         int selectedRow = userTable.getSelectedRow();
         if (selectedRow != -1) {
             int userId = (int) userTableModel.getValueAt(selectedRow, 0); String userName = (String) userTableModel.getValueAt(selectedRow, 1);
-             int confirm = JOptionPane.showConfirmDialog(this, "Delete user '" + userName + "' (ID: " + userId + ") and ALL associated data?", "Confirm Deletion", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            int confirm = JOptionPane.showConfirmDialog(this, "Delete user '" + userName + "' (ID: " + userId + ") and ALL associated data?", "Confirm Deletion", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
             if (confirm == JOptionPane.YES_OPTION) {
-                 // Simple cascade delete simulation
-                 allocationDAO.getAllAllocations().stream().filter(a -> String.valueOf(userId).equals(a.getUserId())).forEach(a -> allocationDAO.deleteAllocation(a.getAllocationId()));
-                 jobDAO.getAllJobs().stream().filter(j -> j.getJobOwnerId() == userId).forEach(j -> jobDAO.deleteJob(j.getJobId()));
-                 VehicleDAO tempVehicleDAO = new VehicleDAO(); tempVehicleDAO.getVehiclesByOwner(userId).forEach(v -> tempVehicleDAO.deleteVehicle(v.getVin()));
+                // Simple cascade delete simulation
+                allocationDAO.getAllAllocations().stream().filter(a -> String.valueOf(userId).equals(a.getUserId())).forEach(a -> allocationDAO.deleteAllocation(a.getAllocationId()));
+                jobDAO.getAllJobs().stream().filter(j -> j.getJobOwnerId() == userId).forEach(j -> jobDAO.deleteJob(j.getJobId()));
+                VehicleDAO tempVehicleDAO = new VehicleDAO(); tempVehicleDAO.getVehiclesByOwner(userId).forEach(v -> tempVehicleDAO.deleteVehicle(v.getVin()));
                 if (userDAO.deleteUser(String.valueOf(userId))) { JOptionPane.showMessageDialog(this, "User '" + userName + "' deleted.", "Success", JOptionPane.INFORMATION_MESSAGE); refreshAllData(); }
                 else { JOptionPane.showMessageDialog(this, "Failed to delete user '" + userName + "'.", "Error", JOptionPane.ERROR_MESSAGE); }
             }
@@ -858,7 +1072,7 @@ pendingRequestsRefreshTimer.start();
         int selectedRow = allocationTable.getSelectedRow();
         if (selectedRow != -1) {
             int allocationId = (int) allocationTableModel.getValueAt(selectedRow, 0);
-             int confirm = JOptionPane.showConfirmDialog(this, "Remove Allocation ID " + allocationId + "?", "Confirm Removal", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            int confirm = JOptionPane.showConfirmDialog(this, "Remove Allocation ID " + allocationId + "?", "Confirm Removal", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
             if (confirm == JOptionPane.YES_OPTION) {
                 if (allocationDAO.deleteAllocation(allocationId)) { JOptionPane.showMessageDialog(this, "Allocation removed.", "Success", JOptionPane.INFORMATION_MESSAGE); loadAllocationData(); }
                 else { JOptionPane.showMessageDialog(this, "Failed to remove allocation.", "Error", JOptionPane.ERROR_MESSAGE); }
@@ -886,6 +1100,6 @@ pendingRequestsRefreshTimer.start();
         for (int i = 0; i < table.getColumnCount(); i++) {
             table.getColumnModel().getColumn(i).setCellRenderer(centerRenderer);
         }
-         ((DefaultTableCellRenderer)header.getDefaultRenderer()).setHorizontalAlignment(JLabel.CENTER);
+        ((DefaultTableCellRenderer)header.getDefaultRenderer()).setHorizontalAlignment(JLabel.CENTER);
     }
 }

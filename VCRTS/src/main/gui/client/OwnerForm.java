@@ -1,125 +1,119 @@
-package gui.client; // Assuming this is the correct package
+package gui.client;
 
 import javax.swing.*;
 import java.awt.*;
-import dao.VehicleDAO;
-import dao.CloudControllerDAO; // Needed to submit for approval
-import models.User; // Needed to identify the user submitting
+import models.User;
 import models.Vehicle;
-import gui.client.ClientFrame; // To get current user
+import gui.client.ClientFrame;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.net.Socket;
 
 public class OwnerForm extends JPanel {
     private int ownerId;
-    private User currentUser; // Store the logged-in user
+    private User currentUser;
     private JTextField modelField, makeField, yearField, vinField;
     private JSpinner hoursSpinner, minutesSpinner, secondsSpinner;
-    // Removed direct VehicleDAO instance, use CloudControllerDAO for submission
-    private CloudControllerDAO cloudControllerDAO = new CloudControllerDAO();
-
+    
+    // Socket connection fields
+    private Socket socket;
+    private PrintWriter out; 
+    private BufferedReader in; 
+    private final String SERVER_ADDRESS = "localhost";
+    private final int SERVER_PORT = 9876; 
+    private boolean connected = false;
+    
     public OwnerForm(int ownerId) {
-        // It's better to pass the User object if possible, or retrieve it
-        // For now, we'll try to get it from the parent ServerFrame if this panel is used within it.
-         this.ownerId = ownerId; // Keep ownerId for display if needed
-         // Attempt to get the currentUser from the ServerFrame parent
-         Component parentFrame = SwingUtilities.getWindowAncestor(this);
-         if (parentFrame instanceof ClientFrame) {
-             this.currentUser = ((ClientFrame) parentFrame).getCurrentUser();
-         }
-         // If currentUser is still null, log a warning or handle appropriately
-         if (this.currentUser == null) {
-             System.err.println("Warning: OwnerForm could not retrieve currentUser.");
-             // Fallback: Create a dummy user object if necessary, though this is not ideal
-             // this.currentUser = new User("Unknown", "unknown@example.com", "vehicle_owner", "");
-             // this.currentUser.setUserId(ownerId);
-         } else {
-              this.ownerId = this.currentUser.getUserId(); // Ensure ownerId matches logged-in user
-         }
-
-
+        this.ownerId = ownerId;
+        
+        // Try to get the current user from the parent frame
+        Component parentFrame = SwingUtilities.getWindowAncestor(this);
+        if (parentFrame instanceof ClientFrame) {
+            this.currentUser = ((ClientFrame) parentFrame).getCurrentUser();
+        }
+        
+        if (this.currentUser == null) {
+            System.err.println("Warning: OwnerForm could not retrieve currentUser.");
+        } else {
+            this.ownerId = this.currentUser.getUserId();
+        }
+        
+        // Initialize UI components
         setLayout(new BorderLayout());
         setBackground(Color.WHITE);
-         setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
-
-
+        setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        
         JPanel mainPanel = new JPanel();
         mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.Y_AXIS));
         mainPanel.setBackground(Color.WHITE);
-
-
+        
         JLabel titleLabel = new JLabel("Register New Vehicle", SwingConstants.CENTER);
         titleLabel.setFont(new Font("Arial", Font.BOLD, 24));
         titleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        mainPanel.add(Box.createVerticalStrut(30)); // Reduced top space
+        mainPanel.add(Box.createVerticalStrut(30));
         mainPanel.add(titleLabel);
         mainPanel.add(Box.createVerticalStrut(20));
-
-
-        // Use GridBagLayout for the form
+        
+        // Form panel
         JPanel formPanel = new JPanel(new GridBagLayout());
         formPanel.setBackground(Color.WHITE);
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(8, 8, 8, 8); // Increased spacing
+        gbc.insets = new Insets(8, 8, 8, 8);
         gbc.anchor = GridBagConstraints.WEST;
-
-
+        
         // Owner ID (Read-only)
         gbc.gridx = 0; gbc.gridy = 0; formPanel.add(createLabel("Owner ID:"), gbc);
         gbc.gridx = 1; gbc.gridy = 0;
         JTextField ownerIdField = new JTextField(String.valueOf(this.ownerId));
         ownerIdField.setEditable(false);
         ownerIdField.setHorizontalAlignment(SwingConstants.LEFT);
-         ownerIdField.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+        ownerIdField.setFont(new Font("Segoe UI", Font.PLAIN, 14));
         formPanel.add(ownerIdField, gbc);
-
-
+        
         // Model
         gbc.gridx = 0; gbc.gridy = 1; formPanel.add(createLabel("Model:"), gbc);
         gbc.gridx = 1; gbc.gridy = 1;
         modelField = createTextField(15);
         formPanel.add(modelField, gbc);
-
-
+        
         // Make
         gbc.gridx = 0; gbc.gridy = 2; formPanel.add(createLabel("Make:"), gbc);
         gbc.gridx = 1; gbc.gridy = 2;
         makeField = createTextField(15);
         formPanel.add(makeField, gbc);
-
-
+        
         // Year
         gbc.gridx = 0; gbc.gridy = 3; formPanel.add(createLabel("Year:"), gbc);
         gbc.gridx = 1; gbc.gridy = 3;
         yearField = createTextField(15);
         formPanel.add(yearField, gbc);
-
-
+        
         // VIN
         gbc.gridx = 0; gbc.gridy = 4; formPanel.add(createLabel("VIN:"), gbc);
         gbc.gridx = 1; gbc.gridy = 4;
         vinField = createTextField(15);
         formPanel.add(vinField, gbc);
-
-
+        
         // Residency Time
         gbc.gridx = 0; gbc.gridy = 5; formPanel.add(createLabel("Residency Time:"), gbc);
         gbc.gridx = 1; gbc.gridy = 5;
-        JPanel timePanel = createTimePanel(); // Use helper
+        JPanel timePanel = createTimePanel();
         formPanel.add(timePanel, gbc);
-
-
+        
         // Approval Note
         gbc.gridx = 0; gbc.gridy = 6; gbc.gridwidth = 2; gbc.anchor = GridBagConstraints.CENTER;
-         JLabel noteLabel = new JLabel("Vehicle registration will be submitted for Controller approval.");
-         noteLabel.setFont(new Font("Segoe UI", Font.ITALIC, 12));
-         noteLabel.setForeground(Color.DARK_GRAY);
+        JLabel noteLabel = new JLabel("Vehicle registration will be submitted for Controller approval.");
+        noteLabel.setFont(new Font("Segoe UI", Font.ITALIC, 12));
+        noteLabel.setForeground(Color.DARK_GRAY);
         formPanel.add(noteLabel, gbc);
-
-
+        
         mainPanel.add(formPanel);
         mainPanel.add(Box.createVerticalStrut(20));
-
-
+        
         // Submit Button Panel
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
         buttonPanel.setBackground(Color.WHITE);
@@ -128,146 +122,234 @@ public class OwnerForm extends JPanel {
         submitButton.setPreferredSize(new Dimension(180, 35));
         buttonPanel.add(submitButton);
         mainPanel.add(buttonPanel);
-
-
+        
         submitButton.addActionListener(e -> submitVehicle());
-
-
+        
         add(mainPanel, BorderLayout.CENTER);
+        
+        // Connect to the server
+        connectToServer();
+        
+        // Add shutdown hook to close connection when application exits
+        Runtime.getRuntime().addShutdownHook(new Thread(this::disconnectFromServer));
     }
-
-
-     // Helper to create styled labels
-    private JLabel createLabel(String text) {
-        JLabel label = new JLabel(text, SwingConstants.LEFT);
-        label.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        return label;
+    
+    // Socket connection methods
+    private void connectToServer() {
+        new Thread(() -> {
+            try {
+                socket = new Socket(SERVER_ADDRESS, SERVER_PORT);
+                out = new PrintWriter(socket.getOutputStream(), true);
+                in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                connected = true;
+                System.out.println("Connected to Cloud Controller server");
+                
+                // Start a thread to listen for server messages
+                new Thread(this::listenForServerMessages).start();
+            } catch (IOException e) {
+                System.err.println("Could not connect to Cloud Controller: " + e.getMessage());
+                connected = false;
+                
+                // Schedule reconnect attempt
+                Timer reconnectTimer = new Timer(5000, event -> connectToServer());
+                reconnectTimer.setRepeats(false);
+                reconnectTimer.start();
+            }
+        }).start();
     }
-
-
-    // Helper to create styled text fields
-    private JTextField createTextField(int columns) {
-        JTextField textField = new JTextField(columns);
-        textField.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        textField.setHorizontalAlignment(SwingConstants.LEFT);
-        return textField;
-    }
-
-
-    // Helper to create the time spinner panel
-    private JPanel createTimePanel() {
-         JPanel timePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
-         timePanel.setBackground(Color.WHITE);
-
-
-        Dimension spinnerSize = new Dimension(50, 25);
-        Font spinnerFont = new Font("Segoe UI", Font.PLAIN, 14);
-
-
-        SpinnerNumberModel hoursModel = new SpinnerNumberModel(1, 0, 99, 1); // Allow > 23 hours
-        hoursSpinner = new JSpinner(hoursModel);
-        hoursSpinner.setEditor(new JSpinner.NumberEditor(hoursSpinner, "00"));
-        hoursSpinner.setPreferredSize(spinnerSize);
-         hoursSpinner.setFont(spinnerFont);
-
-
-        SpinnerNumberModel minutesModel = new SpinnerNumberModel(0, 0, 59, 1);
-        minutesSpinner = new JSpinner(minutesModel);
-        minutesSpinner.setEditor(new JSpinner.NumberEditor(minutesSpinner, "00"));
-        minutesSpinner.setPreferredSize(spinnerSize);
-         minutesSpinner.setFont(spinnerFont);
-
-
-        SpinnerNumberModel secondsModel = new SpinnerNumberModel(0, 0, 59, 1);
-        secondsSpinner = new JSpinner(secondsModel);
-        secondsSpinner.setEditor(new JSpinner.NumberEditor(secondsSpinner, "00"));
-        secondsSpinner.setPreferredSize(spinnerSize);
-         secondsSpinner.setFont(spinnerFont);
-
-
-        timePanel.add(hoursSpinner); timePanel.add(new JLabel("h"));
-        timePanel.add(Box.createHorizontalStrut(5));
-        timePanel.add(minutesSpinner); timePanel.add(new JLabel("m"));
-        timePanel.add(Box.createHorizontalStrut(5));
-        timePanel.add(secondsSpinner); timePanel.add(new JLabel("s"));
-
-
-         return timePanel;
-    }
-
-
-    private void submitVehicle() {
-         // Retrieve currentUser again in case the panel was created before login completed
-         if (this.currentUser == null) {
-             Component parentFrame = SwingUtilities.getWindowAncestor(this);
-             if (parentFrame instanceof ClientFrame) {
-                 this.currentUser = ((ClientFrame) parentFrame).getCurrentUser();
-             }
-         }
-
-
-         if (this.currentUser == null) {
-             JOptionPane.showMessageDialog(this, "Cannot submit: User information not available.", "Error", JOptionPane.ERROR_MESSAGE);
-             return;
-         }
-
-
-        String model = modelField.getText().trim();
-        String make = makeField.getText().trim();
-        String yearStr = yearField.getText().trim();
-        String vin = vinField.getText().trim();
-        int hours = (Integer) hoursSpinner.getValue();
-        int minutes = (Integer) minutesSpinner.getValue();
-        int seconds = (Integer) secondsSpinner.getValue();
-        String residencyTime = String.format("%02d:%02d:%02d", hours, minutes, seconds);
-
-
-        // Validation
-        if (model.isEmpty() || make.isEmpty() || yearStr.isEmpty() || vin.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "All fields (Model, Make, Year, VIN) are required!", "Error", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
+    
+    private void listenForServerMessages() {
         try {
-            Integer.parseInt(yearStr); // Basic check if year is a number
-        } catch (NumberFormatException ex) {
-            JOptionPane.showMessageDialog(this, "Year must be a valid number!", "Error", JOptionPane.ERROR_MESSAGE);
-             yearField.requestFocus();
-            return;
+            String message;
+            while (connected && (message = in.readLine()) != null) {
+                final String finalMessage = message;
+                SwingUtilities.invokeLater(() -> processServerMessage(finalMessage));
+            }
+            } catch (IOException e) {
+                if (connected) {
+                    System.err.println("Error reading from server: " + e.getMessage());
+                    connected = false;
+                    
+                    // Try to reconnect
+                    connectToServer();
+                }
+            }
         }
-        if (residencyTime.equals("00:00:00")) {
-            JOptionPane.showMessageDialog(this, "Residency time must be greater than zero!", "Error", JOptionPane.ERROR_MESSAGE);
-            return;
+        
+        private void processServerMessage(String message) {
+            System.out.println("Received from server: " + message);
+            
+            if (message.startsWith("APPROVAL_STATUS:")) {
+                // Parse: APPROVAL_STATUS:vin,approved/rejected
+                String[] parts = message.substring("APPROVAL_STATUS:".length()).split(",");
+                if (parts.length >= 2) {
+                    String vin = parts[0];
+                    boolean approved = "approved".equals(parts[1]);
+                    
+                    // Show notification to user
+                    JOptionPane.showMessageDialog(this, 
+                        "Your vehicle (VIN: " + vin + ") has been " + (approved ? "approved" : "rejected") + 
+                        "\n" + (approved ? "The vehicle has been added to the system." : "Please check your submission details and try again."),
+                        approved ? "Registration Approved" : "Registration Rejected", 
+                        approved ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+                }
+            }
+        }
+        
+        private void disconnectFromServer() {
+            connected = false;
+            try {
+                if (out != null) out.close();
+                if (in != null) in.close();
+                if (socket != null) socket.close();
+                System.out.println("Disconnected from server");
+            } catch (IOException e) {
+                System.err.println("Error disconnecting: " + e.getMessage());
+            }
+        }
+        
+        private void submitVehicle() {
+            // Check if we need to refresh current user reference
+            if (this.currentUser == null) {
+                Component parentFrame = SwingUtilities.getWindowAncestor(this);
+                if (parentFrame instanceof ClientFrame) {
+                    this.currentUser = ((ClientFrame) parentFrame).getCurrentUser();
+                }
+            }
+            
+            if (this.currentUser == null) {
+                JOptionPane.showMessageDialog(this, 
+                    "Cannot submit: User information not available.", 
+                    "Error", 
+                    JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            // Get form data
+            String model = modelField.getText().trim();
+            String make = makeField.getText().trim();
+            String yearStr = yearField.getText().trim();
+            String vin = vinField.getText().trim();
+            int hours = (Integer) hoursSpinner.getValue();
+            int minutes = (Integer) minutesSpinner.getValue();
+            int seconds = (Integer) secondsSpinner.getValue();
+            String residencyTime = String.format("%02d:%02d:%02d", hours, minutes, seconds);
+
+            // Validation
+            if (model.isEmpty() || make.isEmpty() || yearStr.isEmpty() || vin.isEmpty()) {
+                JOptionPane.showMessageDialog(this, 
+                    "All fields (Model, Make, Year, VIN) are required!", 
+                    "Error", 
+                    JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            
+            try {
+                Integer.parseInt(yearStr); // Basic check if year is a number
+            } catch (NumberFormatException ex) {
+                JOptionPane.showMessageDialog(this, 
+                    "Year must be a valid number!", 
+                    "Error", 
+                    JOptionPane.ERROR_MESSAGE);
+                yearField.requestFocus();
+                return;
+            }
+            
+            if (residencyTime.equals("00:00:00")) {
+                JOptionPane.showMessageDialog(this, 
+                    "Residency time must be greater than zero!", 
+                    "Error", 
+                    JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            // Submit directly using socket instead of CloudControllerDAO
+            if (connected && out != null) {
+                try {
+                    // Format: NEW_VEHICLE:userId,make,model,year,vin,residencyTime
+                    String message = String.format("NEW_VEHICLE:%d,%s,%s,%s,%s,%s", 
+                        currentUser.getUserId(), make, model, yearStr, vin, residencyTime);
+                    out.println(message);
+                    System.out.println("Sent to server: " + message);
+                    
+                    JOptionPane.showMessageDialog(this,
+                        "Vehicle (VIN: " + vin + ") submitted for approval.\nWaiting for Cloud Controller to review.",
+                        "Submission Success",
+                        JOptionPane.INFORMATION_MESSAGE);
+                    clearForm();
+                } catch (Exception e) {
+                    JOptionPane.showMessageDialog(this, 
+                        "Error sending vehicle registration: " + e.getMessage(), 
+                        "Connection Error", 
+                        JOptionPane.ERROR_MESSAGE);
+                }
+            } else {
+                JOptionPane.showMessageDialog(this, 
+                    "Not connected to Cloud Controller server. Retrying connection...", 
+                    "Connection Error", 
+                    JOptionPane.ERROR_MESSAGE);
+                
+                // Try to reconnect
+                connectToServer();
+            }
+        }
+        
+        // Helper UI methods
+        private JLabel createLabel(String text) {
+            JLabel label = new JLabel(text, SwingConstants.LEFT);
+            label.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+            return label;
         }
 
+        private JTextField createTextField(int columns) {
+            JTextField textField = new JTextField(columns);
+            textField.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+            textField.setHorizontalAlignment(SwingConstants.LEFT);
+            return textField;
+        }
 
-        // Create Vehicle object (timestamp set automatically in constructor)
-        // Use the current logged-in user's ID
-        Vehicle vehicle = new Vehicle(currentUser.getUserId(), model, make, yearStr, vin, residencyTime);
+        private JPanel createTimePanel() {
+            JPanel timePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+            timePanel.setBackground(Color.WHITE);
 
+            Dimension spinnerSize = new Dimension(50, 25);
+            Font spinnerFont = new Font("Segoe UI", Font.PLAIN, 14);
 
-        // Submit using CloudControllerDAO
-        boolean submitted = cloudControllerDAO.submitVehicleForApproval(vehicle, currentUser);
+            SpinnerNumberModel hoursModel = new SpinnerNumberModel(1, 0, 99, 1); // Allow > 23 hours
+            hoursSpinner = new JSpinner(hoursModel);
+            hoursSpinner.setEditor(new JSpinner.NumberEditor(hoursSpinner, "00"));
+            hoursSpinner.setPreferredSize(spinnerSize);
+            hoursSpinner.setFont(spinnerFont);
 
+            SpinnerNumberModel minutesModel = new SpinnerNumberModel(0, 0, 59, 1);
+            minutesSpinner = new JSpinner(minutesModel);
+            minutesSpinner.setEditor(new JSpinner.NumberEditor(minutesSpinner, "00"));
+            minutesSpinner.setPreferredSize(spinnerSize);
+            minutesSpinner.setFont(spinnerFont);
 
-        if (submitted) {
-            JOptionPane.showMessageDialog(this,
-                    "Vehicle (VIN: " + vin + ") submitted successfully for approval.",
-                    "Submission Success",
-                    JOptionPane.INFORMATION_MESSAGE);
-            clearForm(); // Clear fields after successful submission
-        } else {
-            JOptionPane.showMessageDialog(this, "Error submitting vehicle for approval.", "Submission Error", JOptionPane.ERROR_MESSAGE);
+            SpinnerNumberModel secondsModel = new SpinnerNumberModel(0, 0, 59, 1);
+            secondsSpinner = new JSpinner(secondsModel);
+            secondsSpinner.setEditor(new JSpinner.NumberEditor(secondsSpinner, "00"));
+            secondsSpinner.setPreferredSize(spinnerSize);
+            secondsSpinner.setFont(spinnerFont);
+
+            timePanel.add(hoursSpinner); timePanel.add(new JLabel("h"));
+            timePanel.add(Box.createHorizontalStrut(5));
+            timePanel.add(minutesSpinner); timePanel.add(new JLabel("m"));
+            timePanel.add(Box.createHorizontalStrut(5));
+            timePanel.add(secondsSpinner); timePanel.add(new JLabel("s"));
+
+            return timePanel;
+        }
+
+        private void clearForm() {
+            modelField.setText("");
+            makeField.setText("");
+            yearField.setText("");
+            vinField.setText("");
+            hoursSpinner.setValue(1); // Reset time to default
+            minutesSpinner.setValue(0);
+            secondsSpinner.setValue(0);
         }
     }
-
-
-    private void clearForm() {
-        modelField.setText("");
-        makeField.setText("");
-        yearField.setText("");
-        vinField.setText("");
-        hoursSpinner.setValue(1); // Reset time to default
-        minutesSpinner.setValue(0);
-        secondsSpinner.setValue(0);
-    }
-}
+            
