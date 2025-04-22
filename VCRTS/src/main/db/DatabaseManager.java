@@ -12,7 +12,7 @@ public class DatabaseManager {
     // Database connection parameters
     private static final String DB_URL = "jdbc:mysql://localhost:3306/vcrts"; // your own db url
     private static final String DB_USER = "root"; // your own connection name
-    private static final String DB_PASSWORD = "Blacknight246!"; // use your own password for connection
+    private static final String DB_PASSWORD = "Rasmia98"; // use your own password for connection
     
     private static Connection connection = null;
     

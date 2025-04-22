@@ -691,11 +691,13 @@ public class CloudControllerDashboard extends JPanel {
 
     // --- Action Methods ---
 
+ // REPLACEMENT FOR approveSelectedRequest METHOD
     private void approveSelectedRequest() {
         int selectedRow = pendingRequestTable.getSelectedRow();
         if (selectedRow != -1) {
             int requestId = (int) pendingRequestTableModel.getValueAt(selectedRow, 0);
-            String typeStr = (String) pendingRequestTableModel.getValueAt(selectedRow, 1);
+            // Get the type as the actual enum value, not as a String
+            PendingRequest.RequestType typeEnum = (PendingRequest.RequestType) pendingRequestTableModel.getValueAt(selectedRow, 1);
             
             // Find the request in our in-memory list
             PendingRequest requestToApprove = null;
@@ -785,16 +787,18 @@ public class CloudControllerDashboard extends JPanel {
         }
     }
 
+    // REPLACEMENT FOR rejectSelectedRequest METHOD
     private void rejectSelectedRequest() {
         int selectedRow = pendingRequestTable.getSelectedRow();
         if (selectedRow != -1) {
             int requestId = (int) pendingRequestTableModel.getValueAt(selectedRow, 0);
-            String typeStr = (String) pendingRequestTableModel.getValueAt(selectedRow, 1);
+            // Get the type as the actual enum value, not as a String
+            PendingRequest.RequestType typeEnum = (PendingRequest.RequestType) pendingRequestTableModel.getValueAt(selectedRow, 1);
             String details = (String) pendingRequestTableModel.getValueAt(selectedRow, 3);
             
             // Extract VIN if it's a vehicle request
             String vin = null;
-            if ("VEHICLE".equals(typeStr) && details.contains("VIN:")) {
+            if (typeEnum == PendingRequest.RequestType.VEHICLE && details.contains("VIN:")) {
                 vin = details.substring(details.indexOf("VIN:") + 5);
                 if (vin.contains(",")) {
                     vin = vin.substring(0, vin.indexOf(",")).trim();
