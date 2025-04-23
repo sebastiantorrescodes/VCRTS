@@ -223,7 +223,7 @@ public class CloudControllerDashboard extends JPanel {
         private void processMessage(String message) {
             System.out.println("Received message: " + message);
             
-            // Parse the message and take appropriate action
+            // Handle vehicle registration
             if (message.startsWith("NEW_VEHICLE:")) {
                 // Format: NEW_VEHICLE:userId,make,model,year,vin,residencyTime
                 String[] parts = message.substring("NEW_VEHICLE:".length()).split(",");
@@ -291,6 +291,77 @@ public class CloudControllerDashboard extends JPanel {
                         });
                     } catch (Exception e) {
                         System.err.println("Error processing vehicle request: " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                }
+            }
+            // Handle job submission
+            else if (message.startsWith("NEW_JOB:")) {
+                // Format: NEW_JOB:userId,jobId,jobName,duration,deadline
+                String[] parts = message.substring("NEW_JOB:".length()).split(",");
+                if (parts.length >= 5) {
+                    try {
+                        int userId = Integer.parseInt(parts[0]);
+                        String jobId = parts[1];
+                        String jobName = parts[2];
+                        String duration = parts[3];
+                        String deadline = parts[4];
+                        
+                        // Create a Job object
+                        Job job = new Job(jobId, jobName, userId, duration, deadline, "");
+                        
+                        // Create a PendingRequest object
+                        UserDAO userDAO = new UserDAO();
+                        User submitter = userDAO.getUserById(userId);
+                        
+                        PendingRequest request = new PendingRequest(
+                            PendingRequest.RequestType.JOB,
+                            job,
+                            null // User object not needed
+                        );
+                        
+                        // Set submitted by info manually
+                        String submitterInfo = "User ID: " + userId;
+                        if (submitter != null) {
+                            submitterInfo += " (" + submitter.getFullName() + ")";
+                        }
+                        
+                        // Use reflection to set the submittedByInfo field
+                        try {
+                            java.lang.reflect.Field field = PendingRequest.class.getDeclaredField("submittedByInfo");
+                            field.setAccessible(true);
+                            field.set(request, submitterInfo);
+                        } catch (Exception e) {
+                            System.err.println("Error setting submittedByInfo: " + e.getMessage());
+                        }
+                        
+                        // Add to in-memory list
+                        synchronized(pendingRequests) {
+                            // Set the request ID manually to ensure uniqueness
+                            try {
+                                java.lang.reflect.Field field = PendingRequest.class.getDeclaredField("requestId");
+                                field.setAccessible(true);
+                                field.set(request, nextRequestId++);
+                            } catch (Exception e) {
+                                System.err.println("Error setting requestId: " + e.getMessage());
+                            }
+                            
+                            pendingRequests.add(request);
+                        }
+                        
+                        // Update the UI asynchronously
+                        SwingUtilities.invokeLater(() -> {
+                            loadPendingRequestData();
+                            // Show notification about new request
+                            JOptionPane.showMessageDialog(
+                                CloudControllerDashboard.this,
+                                "New job submission request received!\nID: " + jobId + ", Name: " + jobName + ", Duration: " + duration,
+                                "New Request",
+                                JOptionPane.INFORMATION_MESSAGE
+                            );
+                        });
+                    } catch (Exception e) {
+                        System.err.println("Error processing job request: " + e.getMessage());
                         e.printStackTrace();
                     }
                 }
@@ -363,7 +434,9 @@ public class CloudControllerDashboard extends JPanel {
         return panel;
     }
 
+    // Other panel creation methods remain the same...
     private JPanel createJobPanel() {
+        // Your existing code...
         JPanel jobPanel = new JPanel(new BorderLayout(10, 10));
         jobPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         jobPanel.setBackground(Color.WHITE);
@@ -397,6 +470,7 @@ public class CloudControllerDashboard extends JPanel {
     }
 
     private JPanel createUserPanel() {
+        // Your existing code...
         JPanel userPanel = new JPanel(new BorderLayout(10, 10));
         userPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         userPanel.setBackground(Color.WHITE);
@@ -430,6 +504,7 @@ public class CloudControllerDashboard extends JPanel {
     }
 
     private JPanel createAllocationPanel() {
+        // Your existing code...
         JPanel allocationPanel = new JPanel(new BorderLayout(10, 10));
         allocationPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         allocationPanel.setBackground(Color.WHITE);
@@ -479,6 +554,7 @@ public class CloudControllerDashboard extends JPanel {
     }
 
     private JPanel createSchedulePanel() {
+        // Your existing code...
         JPanel schedulePanel = new JPanel(new BorderLayout(10, 10));
         schedulePanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         schedulePanel.setBackground(Color.WHITE);
@@ -528,16 +604,19 @@ public class CloudControllerDashboard extends JPanel {
     }
 
     private void loadPendingRequestData() {
+        System.out.println("Loading pending requests...");
         pendingRequestTableModel.setRowCount(0);
         
         synchronized(pendingRequests) {
+            System.out.println("Found " + pendingRequests.size() + " pending requests");
+            
             for (PendingRequest req : pendingRequests) {
                 String details = "";
-                if (req.getData() instanceof Vehicle) {
+                if (req.getType() == PendingRequest.RequestType.VEHICLE) {
                     Vehicle vehicle = (Vehicle) req.getData();
                     details = String.format("VIN: %s, %s %s (%s)", 
                         vehicle.getVin(), vehicle.getMake(), vehicle.getModel(), vehicle.getYear());
-                } else if (req.getData() instanceof Job) {
+                } else if (req.getType() == PendingRequest.RequestType.JOB) {
                     Job job = (Job) req.getData();
                     details = String.format("ID: %s, Name: %s, Duration: %s", 
                         job.getJobId(), job.getJobName(), job.getDuration());
@@ -558,6 +637,7 @@ public class CloudControllerDashboard extends JPanel {
     }
 
     private void loadJobData() {
+        // Your existing code...
         jobTableModel.setRowCount(0);
         Map<String, String> currentStates = cloudControllerDAO.loadJobStates();
         List<Job> jobs = jobDAO.getAllJobs();
@@ -582,6 +662,7 @@ public class CloudControllerDashboard extends JPanel {
     }
 
     private void loadUserData() {
+        // Your existing code...
         userTableModel.setRowCount(0);
         List<User> users = userDAO.getAllUsers();
         for (User user : users) {
@@ -595,6 +676,7 @@ public class CloudControllerDashboard extends JPanel {
     }
 
     private void loadAllocationData() {
+        // Your existing code...
         allocationTableModel.setRowCount(0);
         List<Allocation> allocations = allocationDAO.getAllAllocations();
         for (Allocation allocation : allocations) {
@@ -607,6 +689,7 @@ public class CloudControllerDashboard extends JPanel {
     }
 
     private void loadScheduleData() {
+        // Your existing code...
         scheduleTableModel.setRowCount(0);
         Map<String, String> completionTimes = cloudControllerDAO.loadSchedule();
         Map<String, String> currentStates = cloudControllerDAO.loadJobStates();
@@ -671,6 +754,7 @@ public class CloudControllerDashboard extends JPanel {
     }
 
     private void loadAllocationDropdowns() {
+        // Your existing code...
         userDropdown.removeAllItems();
         jobDropdown.removeAllItems();
 
@@ -691,7 +775,6 @@ public class CloudControllerDashboard extends JPanel {
 
     // --- Action Methods ---
 
- // REPLACEMENT FOR approveSelectedRequest METHOD
     private void approveSelectedRequest() {
         int selectedRow = pendingRequestTable.getSelectedRow();
         if (selectedRow != -1) {
@@ -756,6 +839,12 @@ public class CloudControllerDashboard extends JPanel {
                             pendingRequests.remove(requestToApprove);
                         }
                         
+                        // Send approval notification to clients
+                        String message = "JOB_APPROVAL_STATUS:" + job.getJobId() + ",approved";
+                        for (ClientHandler handler : clientHandlers) {
+                            handler.sendMessage(message);
+                        }
+                        
                         // Update UI
                         loadPendingRequestData();
                         loadJobData();
@@ -787,7 +876,6 @@ public class CloudControllerDashboard extends JPanel {
         }
     }
 
-    // REPLACEMENT FOR rejectSelectedRequest METHOD
     private void rejectSelectedRequest() {
         int selectedRow = pendingRequestTable.getSelectedRow();
         if (selectedRow != -1) {
@@ -804,6 +892,15 @@ public class CloudControllerDashboard extends JPanel {
                     vin = vin.substring(0, vin.indexOf(",")).trim();
                 } else if (vin.contains(")")) {
                     vin = vin.substring(0, vin.indexOf(")")).trim();
+                }
+            }
+            
+            // Extract Job ID if it's a job request
+            String jobId = null;
+            if (typeEnum == PendingRequest.RequestType.JOB && details.contains("ID:")) {
+                jobId = details.substring(details.indexOf("ID:") + 3);
+                if (jobId.contains(",")) {
+                    jobId = jobId.substring(0, jobId.indexOf(",")).trim();
                 }
             }
             
@@ -829,9 +926,14 @@ public class CloudControllerDashboard extends JPanel {
                 }
                 
                 if (removed) {
-                    // Notify client if it's a vehicle request
+                    // Notify client based on request type
                     if (vin != null) {
                         broadcastApprovalStatus(vin, false);
+                    } else if (jobId != null) {
+                        String message = "JOB_APPROVAL_STATUS:" + jobId + ",rejected";
+                        for (ClientHandler handler : clientHandlers) {
+                            handler.sendMessage(message);
+                        }
                     }
                     
                     // Update UI
@@ -857,6 +959,7 @@ public class CloudControllerDashboard extends JPanel {
     }
 
     private void calculateCompletionTimes() {
+        // Your existing code...
         Map<String, String> completionTimes = cloudControllerDAO.calculateCompletionTimes();
         if (completionTimes.isEmpty()) {
             JOptionPane.showMessageDialog(this, "No jobs found to schedule.", "Schedule", JOptionPane.INFORMATION_MESSAGE);
@@ -881,6 +984,7 @@ public class CloudControllerDashboard extends JPanel {
     }
 
     private void assignVehiclesToJobs() {
+        // Your existing code...
         int assignmentCount = cloudControllerDAO.assignVehiclesToJobs();
         if (assignmentCount > 0) {
             loadJobData();
@@ -899,6 +1003,7 @@ public class CloudControllerDashboard extends JPanel {
     }
 
     private void advanceJobQueue() {
+        // Your existing code...
         String nextJobId = cloudControllerDAO.advanceJobQueue();
         if (nextJobId != null) {
             loadJobData();
@@ -917,7 +1022,7 @@ public class CloudControllerDashboard extends JPanel {
     }
 
     // --- Direct Add/Edit/Delete Methods ---
-
+    // These methods can remain unchanged...
     private void addNewJob() {
         JPanel panel = new JPanel(new GridBagLayout());
         GridBagConstraints gbcDialog = new GridBagConstraints();
@@ -943,20 +1048,31 @@ public class CloudControllerDashboard extends JPanel {
         int result = JOptionPane.showConfirmDialog(this, panel, "Add New Job (Directly)", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (result == JOptionPane.OK_OPTION) {
             try {
-                String jobId = jobIdField.getText().trim(); String jobName = jobNameField.getText().trim(); int jobOwner = Integer.parseInt(jobOwnerField.getText().trim());
-                int hours = (Integer) hoursSpinner.getValue(); int minutes = (Integer) minutesSpinner.getValue(); int seconds = (Integer) secondsSpinner.getValue();
-                String duration = String.format("%02d:%02d:%02d", hours, minutes, seconds); String deadline = deadlineField.getText().trim();
+                String jobId = jobIdField.getText().trim(); 
+                String jobName = jobNameField.getText().trim(); 
+                int jobOwner = Integer.parseInt(jobOwnerField.getText().trim());
+                int hours = (Integer) hoursSpinner.getValue(); 
+                int minutes = (Integer) minutesSpinner.getValue(); 
+                int seconds = (Integer) secondsSpinner.getValue();
+                String duration = String.format("%02d:%02d:%02d", hours, minutes, seconds); 
+                String deadline = deadlineField.getText().trim();
 
                 if (jobId.isEmpty() || jobName.isEmpty() || duration.equals("00:00:00") || !deadline.matches("\\d{4}-\\d{2}-\\d{2}")) {
-                     JOptionPane.showMessageDialog(this, "Valid Job ID, Name, Duration, and Deadline (YYYY-MM-DD) required.", "Input Error", JOptionPane.ERROR_MESSAGE); return;
+                    JOptionPane.showMessageDialog(this, "Valid Job ID, Name, Duration, and Deadline (YYYY-MM-DD) required.", "Input Error", JOptionPane.ERROR_MESSAGE); 
+                    return;
                 }
                 Job job = new Job(jobId, jobName, jobOwner, duration, deadline, CloudControllerDAO.STATE_QUEUED);
                 if (jobDAO.addJob(job)) {
                     JOptionPane.showMessageDialog(this, "Job added directly (bypassing approval).", "Success", JOptionPane.INFORMATION_MESSAGE);
                     refreshAllData();
-                } else { JOptionPane.showMessageDialog(this, "Failed to add job directly.", "Error", JOptionPane.ERROR_MESSAGE); }
-            } catch (NumberFormatException e) { JOptionPane.showMessageDialog(this, "Invalid Job Owner ID.", "Input Error", JOptionPane.ERROR_MESSAGE);
-            } catch (Exception e) { JOptionPane.showMessageDialog(this, "An error occurred: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE); }
+                } else { 
+                    JOptionPane.showMessageDialog(this, "Failed to add job directly.", "Error", JOptionPane.ERROR_MESSAGE); 
+                }
+            } catch (NumberFormatException e) { 
+                JOptionPane.showMessageDialog(this, "Invalid Job Owner ID.", "Input Error", JOptionPane.ERROR_MESSAGE);
+            } catch (Exception e) { 
+                JOptionPane.showMessageDialog(this, "An error occurred: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE); 
+            }
         }
     }
 
@@ -965,28 +1081,41 @@ public class CloudControllerDashboard extends JPanel {
         if (selectedRow != -1) {
             String jobId = (String) jobTableModel.getValueAt(selectedRow, 0);
             Job jobToEdit = jobDAO.getAllJobs().stream().filter(j -> j.getJobId().equals(jobId)).findFirst().orElse(null);
-            if (jobToEdit == null) { JOptionPane.showMessageDialog(this, "Could not find job details.", "Error", JOptionPane.ERROR_MESSAGE); return; }
+            if (jobToEdit == null) { 
+                JOptionPane.showMessageDialog(this, "Could not find job details.", "Error", JOptionPane.ERROR_MESSAGE); 
+                return; 
+            }
 
             JTextField nameField = new JTextField(jobToEdit.getJobName(), 20);
             String[] statuses = {CloudControllerDAO.STATE_QUEUED, CloudControllerDAO.STATE_PROGRESS, CloudControllerDAO.STATE_COMPLETED};
             JComboBox<String> statusCombo = new JComboBox<>(statuses);
             statusCombo.setSelectedItem(jobToEdit.getStatus());
-            // Add other fields for editing as needed (duration, deadline etc.)
-
+            
             JPanel panel = new JPanel(new GridLayout(0,2,5,5));
             panel.add(new JLabel("Job Name:")); panel.add(nameField);
             panel.add(new JLabel("Status:")); panel.add(statusCombo);
 
             int result = JOptionPane.showConfirmDialog(this, panel, "Edit Job " + jobId, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
             if (result == JOptionPane.OK_OPTION) {
-                 String newName = nameField.getText().trim(); String newStatus = (String) statusCombo.getSelectedItem();
-                 if (!newName.isEmpty()) {
-                    jobToEdit.setJobName(newName); jobToEdit.setStatus(newStatus);
-                     if (jobDAO.updateJob(jobToEdit)) { JOptionPane.showMessageDialog(this, "Job updated.", "Success", JOptionPane.INFORMATION_MESSAGE); refreshAllData(); }
-                     else { JOptionPane.showMessageDialog(this, "Failed to update job.", "Error", JOptionPane.ERROR_MESSAGE); }
-                 } else { JOptionPane.showMessageDialog(this, "Job Name cannot be empty.", "Input Error", JOptionPane.ERROR_MESSAGE); }
+                String newName = nameField.getText().trim(); 
+                String newStatus = (String) statusCombo.getSelectedItem();
+                if (!newName.isEmpty()) {
+                    jobToEdit.setJobName(newName); 
+                    jobToEdit.setStatus(newStatus);
+                    if (jobDAO.updateJob(jobToEdit)) { 
+                        JOptionPane.showMessageDialog(this, "Job updated.", "Success", JOptionPane.INFORMATION_MESSAGE); 
+                        refreshAllData(); 
+                    }
+                    else { 
+                        JOptionPane.showMessageDialog(this, "Failed to update job.", "Error", JOptionPane.ERROR_MESSAGE); 
+                    }
+                } else { 
+                    JOptionPane.showMessageDialog(this, "Job Name cannot be empty.", "Input Error", JOptionPane.ERROR_MESSAGE); 
+                }
             }
-        } else { JOptionPane.showMessageDialog(this, "Please select a job to edit.", "Selection Required", JOptionPane.WARNING_MESSAGE); }
+        } else { 
+            JOptionPane.showMessageDialog(this, "Please select a job to edit.", "Selection Required", JOptionPane.WARNING_MESSAGE); 
+        }
     }
 
     private void deleteSelectedJob() {
@@ -996,97 +1125,202 @@ public class CloudControllerDashboard extends JPanel {
             String status = (String) jobTableModel.getValueAt(selectedRow, 5);
 
             if (CloudControllerDAO.STATE_PENDING_APPROVAL.equals(status)) {
-                JOptionPane.showMessageDialog(this, "Cannot delete pending job. Reject it instead.", "Action Not Allowed", JOptionPane.WARNING_MESSAGE); return;
+                JOptionPane.showMessageDialog(this, "Cannot delete pending job. Reject it instead.", "Action Not Allowed", JOptionPane.WARNING_MESSAGE); 
+                return;
             }
             int confirm = JOptionPane.showConfirmDialog(this, "Delete Job ID '" + jobId + "'?", "Confirm Deletion", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
             if (confirm == JOptionPane.YES_OPTION) {
                 if (jobDAO.deleteJob(jobId)) {
                     JOptionPane.showMessageDialog(this, "Job '" + jobId + "' deleted.", "Success", JOptionPane.INFORMATION_MESSAGE);
                     refreshAllData();
-                } else { JOptionPane.showMessageDialog(this, "Failed to delete job '" + jobId + "'.", "Error", JOptionPane.ERROR_MESSAGE); }
+                } else { 
+                    JOptionPane.showMessageDialog(this, "Failed to delete job '" + jobId + "'.", "Error", JOptionPane.ERROR_MESSAGE); 
+                }
             }
-        } else { JOptionPane.showMessageDialog(this, "Please select a job to delete.", "Selection Required", JOptionPane.WARNING_MESSAGE); }
+        } else { 
+            JOptionPane.showMessageDialog(this, "Please select a job to delete.", "Selection Required", JOptionPane.WARNING_MESSAGE); 
+        }
     }
 
     private void addNewUser() {
-        JTextField nameField = new JTextField(20); JTextField emailField = new JTextField(20); JPasswordField passField = new JPasswordField(20);
+        JTextField nameField = new JTextField(20); 
+        JTextField emailField = new JTextField(20); 
+        JPasswordField passField = new JPasswordField(20);
+        String[] roleOptions = {"vehicle_owner,job_owner", "vehicle_owner", "job_owner", "cloud_controller"};
+        JComboBox<String> rolesCombo = new JComboBox<>(roleOptions);
+        
         JPanel panel = new JPanel(new GridLayout(0, 2, 5, 5));
-        panel.add(new JLabel("Full Name:")); panel.add(nameField); panel.add(new JLabel("Email:")); panel.add(emailField); panel.add(new JLabel("Password:")); panel.add(passField);
+        panel.add(new JLabel("Full Name:")); panel.add(nameField); 
+        panel.add(new JLabel("Email:")); panel.add(emailField); 
+        panel.add(new JLabel("Password:")); panel.add(passField);
+        panel.add(new JLabel("Roles:")); panel.add(rolesCombo);
+        
         int result = JOptionPane.showConfirmDialog(this, panel, "Add New User", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (result == JOptionPane.OK_OPTION) {
-            String fullName = nameField.getText().trim(); String email = emailField.getText().trim(); String password = new String(passField.getPassword());
+            String fullName = nameField.getText().trim(); 
+            String email = emailField.getText().trim(); 
+            String password = new String(passField.getPassword());
+            String roles = (String)rolesCombo.getSelectedItem();
+            
             if (fullName.isEmpty() || email.isEmpty() || password.isEmpty() || !email.contains("@")) {
-                JOptionPane.showMessageDialog(this, "Valid Name, Email, and Password required.", "Input Error", JOptionPane.ERROR_MESSAGE); return;
+                JOptionPane.showMessageDialog(this, "Valid Name, Email, and Password required.", "Input Error", JOptionPane.ERROR_MESSAGE); 
+                return;
             }
-            User user = new User(fullName, email, "vehicle_owner,job_owner", password); // Default roles
-            if (userDAO.addUser(user)) { JOptionPane.showMessageDialog(this, "User added.", "Success", JOptionPane.INFORMATION_MESSAGE); loadUserData(); loadAllocationDropdowns(); }
-            else { JOptionPane.showMessageDialog(this, "Failed to add user (Email might exist).", "Error", JOptionPane.ERROR_MESSAGE); }
+            User user = new User(fullName, email, roles, password);
+            if (userDAO.addUser(user)) { 
+                JOptionPane.showMessageDialog(this, "User added.", "Success", JOptionPane.INFORMATION_MESSAGE); 
+                loadUserData(); 
+                loadAllocationDropdowns(); 
+            }
+            else { 
+                JOptionPane.showMessageDialog(this, "Failed to add user (Email might exist).", "Error", JOptionPane.ERROR_MESSAGE); 
+            }
         }
     }
 
     private void editSelectedUser() {
         int selectedRow = userTable.getSelectedRow();
         if (selectedRow != -1) {
-            int userId = (int) userTableModel.getValueAt(selectedRow, 0); User userToEdit = userDAO.getUserById(userId);
-            if (userToEdit == null) { JOptionPane.showMessageDialog(this, "Could not find user details.", "Error", JOptionPane.ERROR_MESSAGE); return; }
-            JTextField nameField = new JTextField(userToEdit.getFullName(), 20); JTextField emailField = new JTextField(userToEdit.getEmail(), 20);
-            JPanel panel = new JPanel(new GridLayout(0, 2, 5, 5)); panel.add(new JLabel("Full Name:")); panel.add(nameField); panel.add(new JLabel("Email:")); panel.add(emailField);
+            int userId = (int) userTableModel.getValueAt(selectedRow, 0); 
+            User userToEdit = userDAO.getUserById(userId);
+            if (userToEdit == null) { 
+                JOptionPane.showMessageDialog(this, "Could not find user details.", "Error", JOptionPane.ERROR_MESSAGE); 
+                return; 
+            }
+            JTextField nameField = new JTextField(userToEdit.getFullName(), 20); 
+            JTextField emailField = new JTextField(userToEdit.getEmail(), 20);
+            
+            String[] roleOptions = {"vehicle_owner,job_owner", "vehicle_owner", "job_owner", "cloud_controller"};
+            JComboBox<String> rolesCombo = new JComboBox<>(roleOptions);
+            rolesCombo.setSelectedItem(userToEdit.getRolesAsString());
+            
+            JPanel panel = new JPanel(new GridLayout(0, 2, 5, 5)); 
+            panel.add(new JLabel("Full Name:")); panel.add(nameField); 
+            panel.add(new JLabel("Email:")); panel.add(emailField);
+            panel.add(new JLabel("Roles:")); panel.add(rolesCombo);
+            
             int result = JOptionPane.showConfirmDialog(this, panel, "Edit User " + userId, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
             if (result == JOptionPane.OK_OPTION) {
-                String newName = nameField.getText().trim(); String newEmail = emailField.getText().trim();
-                if (newName.isEmpty() || newEmail.isEmpty() || !newEmail.contains("@")) { JOptionPane.showMessageDialog(this, "Valid Name and Email required.", "Input Error", JOptionPane.ERROR_MESSAGE); return; }
-                userToEdit.setFullName(newName); userToEdit.setEmail(newEmail);
-                if (userDAO.updateUser(userToEdit)) { JOptionPane.showMessageDialog(this, "User updated.", "Success", JOptionPane.INFORMATION_MESSAGE); loadUserData(); loadAllocationDropdowns(); }
-                else { JOptionPane.showMessageDialog(this, "Failed to update user.", "Error", JOptionPane.ERROR_MESSAGE); }
+                String newName = nameField.getText().trim(); 
+                String newEmail = emailField.getText().trim();
+                String newRoles = (String)rolesCombo.getSelectedItem();
+                
+                if (newName.isEmpty() || newEmail.isEmpty() || !newEmail.contains("@")) { 
+                    JOptionPane.showMessageDialog(this, "Valid Name and Email required.", "Input Error", JOptionPane.ERROR_MESSAGE); 
+                    return; 
+                }
+                userToEdit.setFullName(newName); 
+                userToEdit.setEmail(newEmail);
+                userToEdit.setRoles(newRoles);
+                
+                if (userDAO.updateUser(userToEdit)) { 
+                    JOptionPane.showMessageDialog(this, "User updated.", "Success", JOptionPane.INFORMATION_MESSAGE); 
+                    loadUserData(); 
+                    loadAllocationDropdowns(); 
+                }
+                else { 
+                    JOptionPane.showMessageDialog(this, "Failed to update user.", "Error", JOptionPane.ERROR_MESSAGE); 
+                }
             }
-        } else { JOptionPane.showMessageDialog(this, "Please select a user to edit.", "Selection Required", JOptionPane.WARNING_MESSAGE); }
+        } else { 
+            JOptionPane.showMessageDialog(this, "Please select a user to edit.", "Selection Required", JOptionPane.WARNING_MESSAGE); 
+        }
     }
 
     private void deleteSelectedUser() {
         int selectedRow = userTable.getSelectedRow();
         if (selectedRow != -1) {
-            int userId = (int) userTableModel.getValueAt(selectedRow, 0); String userName = (String) userTableModel.getValueAt(selectedRow, 1);
+            int userId = (int) userTableModel.getValueAt(selectedRow, 0); 
+            String userName = (String) userTableModel.getValueAt(selectedRow, 1);
             int confirm = JOptionPane.showConfirmDialog(this, "Delete user '" + userName + "' (ID: " + userId + ") and ALL associated data?", "Confirm Deletion", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
             if (confirm == JOptionPane.YES_OPTION) {
                 // Simple cascade delete simulation
-                allocationDAO.getAllAllocations().stream().filter(a -> String.valueOf(userId).equals(a.getUserId())).forEach(a -> allocationDAO.deleteAllocation(a.getAllocationId()));
-                jobDAO.getAllJobs().stream().filter(j -> j.getJobOwnerId() == userId).forEach(j -> jobDAO.deleteJob(j.getJobId()));
-                VehicleDAO tempVehicleDAO = new VehicleDAO(); tempVehicleDAO.getVehiclesByOwner(userId).forEach(v -> tempVehicleDAO.deleteVehicle(v.getVin()));
-                if (userDAO.deleteUser(String.valueOf(userId))) { JOptionPane.showMessageDialog(this, "User '" + userName + "' deleted.", "Success", JOptionPane.INFORMATION_MESSAGE); refreshAllData(); }
-                else { JOptionPane.showMessageDialog(this, "Failed to delete user '" + userName + "'.", "Error", JOptionPane.ERROR_MESSAGE); }
+                allocationDAO.getAllAllocations().stream()
+                    .filter(a -> String.valueOf(userId).equals(a.getUserId()))
+                    .forEach(a -> allocationDAO.deleteAllocation(a.getAllocationId()));
+                
+                jobDAO.getAllJobs().stream()
+                    .filter(j -> j.getJobOwnerId() == userId)
+                    .forEach(j -> jobDAO.deleteJob(j.getJobId()));
+                
+                VehicleDAO tempVehicleDAO = new VehicleDAO(); 
+                tempVehicleDAO.getVehiclesByOwner(userId)
+                    .forEach(v -> tempVehicleDAO.deleteVehicle(v.getVin()));
+                
+                if (userDAO.deleteUser(String.valueOf(userId))) { 
+                    JOptionPane.showMessageDialog(this, "User '" + userName + "' deleted.", "Success", JOptionPane.INFORMATION_MESSAGE); 
+                    refreshAllData(); 
+                }
+                else { 
+                    JOptionPane.showMessageDialog(this, "Failed to delete user '" + userName + "'.", "Error", JOptionPane.ERROR_MESSAGE); 
+                }
             }
-        } else { JOptionPane.showMessageDialog(this, "Please select a user to delete.", "Selection Required", JOptionPane.WARNING_MESSAGE); }
+        } else { 
+            JOptionPane.showMessageDialog(this, "Please select a user to delete.", "Selection Required", JOptionPane.WARNING_MESSAGE); 
+        }
     }
 
     private void allocateUserToJob() {
-        String userSelection = (String) userDropdown.getSelectedItem(); String jobSelection = (String) jobDropdown.getSelectedItem();
+        String userSelection = (String) userDropdown.getSelectedItem(); 
+        String jobSelection = (String) jobDropdown.getSelectedItem();
         if (userSelection != null && jobSelection != null) {
             try {
-                String userId = userSelection.split(" - ")[0]; String jobId = jobSelection.split(" - ")[0];
-                boolean exists = allocationDAO.getAllAllocations().stream().anyMatch(a -> a.getUserId().equals(userId) && a.getJobId().equals(jobId));
-                if (exists) { JOptionPane.showMessageDialog(this, "Allocation already exists.", "Allocation Exists", JOptionPane.INFORMATION_MESSAGE); return; }
+                String userId = userSelection.split(" - ")[0]; 
+                String jobId = jobSelection.split(" - ")[0];
+                
+                // Check if allocation already exists
+                boolean exists = allocationDAO.getAllAllocations().stream()
+                    .anyMatch(a -> a.getUserId().equals(userId) && a.getJobId().equals(jobId));
+                    
+                if (exists) { 
+                    JOptionPane.showMessageDialog(this, "Allocation already exists.", "Allocation Exists", JOptionPane.INFORMATION_MESSAGE); 
+                    return; 
+                }
+                
                 Allocation allocation = new Allocation(userId, jobId);
-                if (allocationDAO.addAllocation(allocation)) { JOptionPane.showMessageDialog(this, "User allocated.", "Success", JOptionPane.INFORMATION_MESSAGE); loadAllocationData(); }
-                else { JOptionPane.showMessageDialog(this, "Failed to allocate.", "Error", JOptionPane.ERROR_MESSAGE); }
-            } catch (Exception ex) { JOptionPane.showMessageDialog(this, "Error parsing selection: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE); }
-        } else { JOptionPane.showMessageDialog(this, "Please select both user and job.", "Selection Required", JOptionPane.WARNING_MESSAGE); }
+                if (allocationDAO.addAllocation(allocation)) { 
+                    JOptionPane.showMessageDialog(this, "User allocated to job successfully.", "Success", JOptionPane.INFORMATION_MESSAGE); 
+                    loadAllocationData(); 
+                }
+                else { 
+                    JOptionPane.showMessageDialog(this, "Failed to create allocation.", "Error", JOptionPane.ERROR_MESSAGE); 
+                }
+            } catch (Exception ex) { 
+                JOptionPane.showMessageDialog(this, "Error parsing selection: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE); 
+            }
+        } else { 
+            JOptionPane.showMessageDialog(this, "Please select both user and job.", "Selection Required", JOptionPane.WARNING_MESSAGE); 
+        }
     }
 
     private void removeSelectedAllocation() {
         int selectedRow = allocationTable.getSelectedRow();
         if (selectedRow != -1) {
             int allocationId = (int) allocationTableModel.getValueAt(selectedRow, 0);
-            int confirm = JOptionPane.showConfirmDialog(this, "Remove Allocation ID " + allocationId + "?", "Confirm Removal", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            String userId = (String) allocationTableModel.getValueAt(selectedRow, 1);
+            String jobId = (String) allocationTableModel.getValueAt(selectedRow, 2);
+            
+            int confirm = JOptionPane.showConfirmDialog(this, 
+                "Remove allocation ID " + allocationId + " (User: " + userId + ", Job: " + jobId + ")?", 
+                "Confirm Removal", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                
             if (confirm == JOptionPane.YES_OPTION) {
-                if (allocationDAO.deleteAllocation(allocationId)) { JOptionPane.showMessageDialog(this, "Allocation removed.", "Success", JOptionPane.INFORMATION_MESSAGE); loadAllocationData(); }
-                else { JOptionPane.showMessageDialog(this, "Failed to remove allocation.", "Error", JOptionPane.ERROR_MESSAGE); }
+                if (allocationDAO.deleteAllocation(allocationId)) { 
+                    JOptionPane.showMessageDialog(this, "Allocation removed successfully.", "Success", JOptionPane.INFORMATION_MESSAGE); 
+                    loadAllocationData(); 
+                }
+                else { 
+                    JOptionPane.showMessageDialog(this, "Failed to remove allocation.", "Error", JOptionPane.ERROR_MESSAGE); 
+                }
             }
-        } else { JOptionPane.showMessageDialog(this, "Please select an allocation to remove.", "Selection Required", JOptionPane.WARNING_MESSAGE); }
+        } else { 
+            JOptionPane.showMessageDialog(this, "Please select an allocation to remove.", "Selection Required", JOptionPane.WARNING_MESSAGE); 
+        }
     }
-
     // --- Helper Methods ---
 
     private void setupTableAppearance(JTable table) {
+        // Your existing code...
         table.setFont(new Font("Segoe UI", Font.PLAIN, 14));
         table.setRowHeight(25);
         table.setGridColor(Color.LIGHT_GRAY);
