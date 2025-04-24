@@ -211,7 +211,7 @@ public List<PendingRequest> getPendingRequests() {
     public void approveRequest(int requestId, Runnable callback) {
         PendingRequest requestToProcess = null;
         boolean removed = false;
-
+    
         // 1. Find and remove the request SYNCHRONOUSLY (and safely)
         synchronized (pendingRequests) {
             Iterator<PendingRequest> iterator = pendingRequests.iterator();
@@ -225,19 +225,19 @@ public List<PendingRequest> getPendingRequests() {
                 }
             }
         }
-
+    
         // 2. If found and removed, start a background thread to save
         if (requestToProcess != null && removed) {
             savePendingRequests();
             final PendingRequest finalRequest = requestToProcess; // Need final variable for lambda
             logger.info("Request " + requestId + " removed from queue. Starting background save thread.");
-
+    
             // *** EXPLICIT THREAD CREATION ***
             Thread saveThread = new Thread(() -> {
                 boolean saved = false;
                 String message;
                 boolean isError = false;
-
+    
                 try {
                     // Perform the file saving in the background thread
                     if (finalRequest.getType() == PendingRequest.RequestType.JOB) {
@@ -251,53 +251,43 @@ public List<PendingRequest> getPendingRequests() {
                             logger.severe("Background thread FAILED to save approved Job ID: " + job.getJobId());
                             message = "Error saving approved Job ID: " + job.getJobId() + ". Please check logs.";
                             isError = true;
-                            // Consider how to handle save failure - maybe re-add request?
                         }
                     } else if (finalRequest.getType() == PendingRequest.RequestType.VEHICLE) {
                         Vehicle vehicle = (Vehicle) finalRequest.getData();
                         saved = vehicleDAO.addVehicle(vehicle);
                         if (saved) {
                             logger.info("Background thread successfully saved Vehicle VIN: " + vehicle.getVin());
-                             message = "Request ID " + requestId + " (Vehicle: " + vehicle.getVin() + ") approved and saved.";
+                            message = "Request ID " + requestId + " (Vehicle: " + vehicle.getVin() + ") approved and saved.";
                         } else {
                             logger.severe("Background thread FAILED to save approved Vehicle VIN: " + vehicle.getVin());
-                             message = "Error saving approved Vehicle VIN: " + vehicle.getVin() + ". Please check logs.";
-                             isError = true;
-                            // Consider how to handle save failure
+                            message = "Error saving approved Vehicle VIN: " + vehicle.getVin() + ". Please check logs.";
+                            isError = true;
                         }
                     } else {
-                         message = "Unknown request type for ID " + requestId;
-                         isError = true;
+                        message = "Unknown request type for ID " + requestId;
+                        isError = true;
                     }
-
+    
                     // 3. Schedule GUI updates back on the EDT
-                    final String finalMessage = message;
-                    final boolean finalIsError = isError;
                     final boolean finalSaved = saved; // Need final variable for lambda
                     SwingUtilities.invokeLater(() -> {
-                        JOptionPane.showMessageDialog(null, // Use null parent for simplicity from background thread
-                                finalMessage,
-                                finalIsError ? "Approval Error" : "Approval Success",
-                                finalIsError ? JOptionPane.ERROR_MESSAGE : JOptionPane.INFORMATION_MESSAGE);
+                        // REMOVED THE NOTIFICATION DIALOG HERE
                         if (finalSaved) {
-                             // Optionally trigger schedule recalculation only if a job was saved
-                             if (finalRequest.getType() == PendingRequest.RequestType.JOB) {
-                                 calculateCompletionTimes(); // Recalculate on EDT after save success
-                             }
+                            // Optionally trigger schedule recalculation only if a job was saved
+                            if (finalRequest.getType() == PendingRequest.RequestType.JOB) {
+                                calculateCompletionTimes(); // Recalculate on EDT after save success
+                            }
                         }
                         if (callback != null) {
                             callback.run(); // Run the provided callback (e.g., refresh UI) on EDT
                         }
                     });
-
+    
                 } catch (Exception e) {
                     logger.log(Level.SEVERE, "Exception in background save thread for request " + requestId, e);
                     // Report error back to EDT
                     SwingUtilities.invokeLater(() -> {
-                        JOptionPane.showMessageDialog(null,
-                                "An unexpected error occurred while saving request " + requestId + ":\n" + e.getMessage(),
-                                "Background Save Error", JOptionPane.ERROR_MESSAGE);
-                         if (callback != null) {
+                        if (callback != null) {
                             callback.run(); // Still run callback to refresh UI state
                         }
                     });
@@ -305,16 +295,14 @@ public List<PendingRequest> getPendingRequests() {
             });
             saveThread.setName("SaveRequest-" + requestId);
             saveThread.start(); // Start the background thread
-
+    
         } else {
             // Request not found or couldn't be removed
             logger.warning("Approve Request: Request ID " + requestId + " not found or couldn't be removed.");
-             // Still run callback to potentially refresh UI state
+            // Still run callback to potentially refresh UI state
             if (callback != null) {
                 SwingUtilities.invokeLater(callback);
             }
-             // Optionally show a message that the request wasn't found
-             // SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(null, ...));
         }
     }
 

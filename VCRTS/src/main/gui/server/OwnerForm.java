@@ -1,12 +1,12 @@
-package gui.server; // Assuming this is the correct package
+package gui.server;
 
 import javax.swing.*;
 import java.awt.*;
 import dao.VehicleDAO;
-import dao.CloudControllerDAO; // Needed to submit for approval
-import models.User; // Needed to identify the user submitting
+import dao.CloudControllerDAO;
+import models.User;
 import models.Vehicle;
-import gui.server.ServerFrame; // To get current user
+import gui.server.ServerFrame;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -16,51 +16,33 @@ import java.net.Socket;
 import java.util.ArrayList;
 
 public class OwnerForm extends JPanel {
-    private int ownerId;
     private User currentUser; // Store the logged-in user
-    private JTextField modelField, makeField, yearField, vinField;
+    private JTextField ownerIdField, modelField, makeField, yearField, vinField;
     private JSpinner hoursSpinner, minutesSpinner, secondsSpinner;
-    // Removed direct VehicleDAO instance, use CloudControllerDAO for submission
     private CloudControllerDAO cloudControllerDAO = new CloudControllerDAO();
     
 
-    public OwnerForm(int ownerId) {
-        // It's better to pass the User object if possible, or retrieve it
-        // For now, we'll try to get it from the parent ServerFrame if this panel is used within it.
-         this.ownerId = ownerId; // Keep ownerId for display if needed
-         // Attempt to get the currentUser from the ServerFrame parent
+    public OwnerForm(int suggestedOwnerId) {
+         // Fallback suggested ID if no user is retrieved
          Component parentFrame = SwingUtilities.getWindowAncestor(this);
          if (parentFrame instanceof ServerFrame) {
              this.currentUser = ((ServerFrame) parentFrame).getCurrentUser();
          }
-         // If currentUser is still null, log a warning or handle appropriately
-         if (this.currentUser == null) {
-             System.err.println("Warning: OwnerForm could not retrieve currentUser.");
-             // Fallback: Create a dummy user object if necessary, though this is not ideal
-             // this.currentUser = new User("Unknown", "unknown@example.com", "vehicle_owner", "");
-             // this.currentUser.setUserId(ownerId);
-         } else {
-              this.ownerId = this.currentUser.getUserId(); // Ensure ownerId matches logged-in user
-         }
-
 
         setLayout(new BorderLayout());
         setBackground(Color.WHITE);
-         setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
-
+        setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
 
         JPanel mainPanel = new JPanel();
         mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.Y_AXIS));
         mainPanel.setBackground(Color.WHITE);
 
-
         JLabel titleLabel = new JLabel("Register New Vehicle", SwingConstants.CENTER);
         titleLabel.setFont(new Font("Arial", Font.BOLD, 24));
         titleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        mainPanel.add(Box.createVerticalStrut(30)); // Reduced top space
+        mainPanel.add(Box.createVerticalStrut(30));
         mainPanel.add(titleLabel);
         mainPanel.add(Box.createVerticalStrut(20));
-
 
         // Use GridBagLayout for the form
         JPanel formPanel = new JPanel(new GridBagLayout());
@@ -70,16 +52,14 @@ public class OwnerForm extends JPanel {
         gbc.insets = new Insets(8, 8, 8, 8); // Increased spacing
         gbc.anchor = GridBagConstraints.WEST;
 
-
-        // Owner ID (Read-only)
+        // Owner ID (Now editable)
         gbc.gridx = 0; gbc.gridy = 0; formPanel.add(createLabel("Owner ID:"), gbc);
         gbc.gridx = 1; gbc.gridy = 0;
-        JTextField ownerIdField = new JTextField(String.valueOf(this.ownerId));
-        ownerIdField.setEditable(false);
+        ownerIdField = new JTextField(String.valueOf(suggestedOwnerId));
+        ownerIdField.setEditable(true); // Allow manual entry
         ownerIdField.setHorizontalAlignment(SwingConstants.LEFT);
-         ownerIdField.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+        ownerIdField.setFont(new Font("Segoe UI", Font.PLAIN, 14));
         formPanel.add(ownerIdField, gbc);
-
 
         // Model
         gbc.gridx = 0; gbc.gridy = 1; formPanel.add(createLabel("Model:"), gbc);
@@ -87,13 +67,11 @@ public class OwnerForm extends JPanel {
         modelField = createTextField(15);
         formPanel.add(modelField, gbc);
 
-
         // Make
         gbc.gridx = 0; gbc.gridy = 2; formPanel.add(createLabel("Make:"), gbc);
         gbc.gridx = 1; gbc.gridy = 2;
         makeField = createTextField(15);
         formPanel.add(makeField, gbc);
-
 
         // Year
         gbc.gridx = 0; gbc.gridy = 3; formPanel.add(createLabel("Year:"), gbc);
@@ -101,13 +79,11 @@ public class OwnerForm extends JPanel {
         yearField = createTextField(15);
         formPanel.add(yearField, gbc);
 
-
         // VIN
         gbc.gridx = 0; gbc.gridy = 4; formPanel.add(createLabel("VIN:"), gbc);
         gbc.gridx = 1; gbc.gridy = 4;
         vinField = createTextField(15);
         formPanel.add(vinField, gbc);
-
 
         // Residency Time
         gbc.gridx = 0; gbc.gridy = 5; formPanel.add(createLabel("Residency Time:"), gbc);
@@ -115,18 +91,15 @@ public class OwnerForm extends JPanel {
         JPanel timePanel = createTimePanel(); // Use helper
         formPanel.add(timePanel, gbc);
 
-
         // Approval Note
         gbc.gridx = 0; gbc.gridy = 6; gbc.gridwidth = 2; gbc.anchor = GridBagConstraints.CENTER;
-         JLabel noteLabel = new JLabel("Vehicle registration will be submitted for Controller approval.");
-         noteLabel.setFont(new Font("Segoe UI", Font.ITALIC, 12));
-         noteLabel.setForeground(Color.DARK_GRAY);
+        JLabel noteLabel = new JLabel("Vehicle registration will be submitted for Controller approval.");
+        noteLabel.setFont(new Font("Segoe UI", Font.ITALIC, 12));
+        noteLabel.setForeground(Color.DARK_GRAY);
         formPanel.add(noteLabel, gbc);
-
 
         mainPanel.add(formPanel);
         mainPanel.add(Box.createVerticalStrut(20));
-
 
         // Submit Button Panel
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
@@ -137,21 +110,17 @@ public class OwnerForm extends JPanel {
         buttonPanel.add(submitButton);
         mainPanel.add(buttonPanel);
 
-
         submitButton.addActionListener(e -> submitVehicle());
-
 
         add(mainPanel, BorderLayout.CENTER);
     }
 
-
-     // Helper to create styled labels
+    // Helper to create styled labels
     private JLabel createLabel(String text) {
         JLabel label = new JLabel(text, SwingConstants.LEFT);
         label.setFont(new Font("Segoe UI", Font.PLAIN, 14));
         return label;
     }
-
 
     // Helper to create styled text fields
     private JTextField createTextField(int columns) {
@@ -161,37 +130,31 @@ public class OwnerForm extends JPanel {
         return textField;
     }
 
-
     // Helper to create the time spinner panel
     private JPanel createTimePanel() {
-         JPanel timePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
-         timePanel.setBackground(Color.WHITE);
-
+        JPanel timePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+        timePanel.setBackground(Color.WHITE);
 
         Dimension spinnerSize = new Dimension(50, 25);
         Font spinnerFont = new Font("Segoe UI", Font.PLAIN, 14);
-
 
         SpinnerNumberModel hoursModel = new SpinnerNumberModel(1, 0, 99, 1); // Allow > 23 hours
         hoursSpinner = new JSpinner(hoursModel);
         hoursSpinner.setEditor(new JSpinner.NumberEditor(hoursSpinner, "00"));
         hoursSpinner.setPreferredSize(spinnerSize);
-         hoursSpinner.setFont(spinnerFont);
-
+        hoursSpinner.setFont(spinnerFont);
 
         SpinnerNumberModel minutesModel = new SpinnerNumberModel(0, 0, 59, 1);
         minutesSpinner = new JSpinner(minutesModel);
         minutesSpinner.setEditor(new JSpinner.NumberEditor(minutesSpinner, "00"));
         minutesSpinner.setPreferredSize(spinnerSize);
-         minutesSpinner.setFont(spinnerFont);
-
+        minutesSpinner.setFont(spinnerFont);
 
         SpinnerNumberModel secondsModel = new SpinnerNumberModel(0, 0, 59, 1);
         secondsSpinner = new JSpinner(secondsModel);
         secondsSpinner.setEditor(new JSpinner.NumberEditor(secondsSpinner, "00"));
         secondsSpinner.setPreferredSize(spinnerSize);
-         secondsSpinner.setFont(spinnerFont);
-
+        secondsSpinner.setFont(spinnerFont);
 
         timePanel.add(hoursSpinner); timePanel.add(new JLabel("h"));
         timePanel.add(Box.createHorizontalStrut(5));
@@ -199,26 +162,28 @@ public class OwnerForm extends JPanel {
         timePanel.add(Box.createHorizontalStrut(5));
         timePanel.add(secondsSpinner); timePanel.add(new JLabel("s"));
 
-
-         return timePanel;
+        return timePanel;
     }
 
-
     private void submitVehicle() {
-         // Retrieve currentUser again in case the panel was created before login completed
-         if (this.currentUser == null) {
-             Component parentFrame = SwingUtilities.getWindowAncestor(this);
-             if (parentFrame instanceof ServerFrame) {
-                 this.currentUser = ((ServerFrame) parentFrame).getCurrentUser();
-             }
-         }
+        // Retrieve currentUser again in case the panel was created before login completed
+        if (this.currentUser == null) {
+            Component parentFrame = SwingUtilities.getWindowAncestor(this);
+            if (parentFrame instanceof ServerFrame) {
+                this.currentUser = ((ServerFrame) parentFrame).getCurrentUser();
+            }
+        }
 
-
-         if (this.currentUser == null) {
-             JOptionPane.showMessageDialog(this, "Cannot submit: User information not available.", "Error", JOptionPane.ERROR_MESSAGE);
-             return;
-         }
-
+        // Use manually entered owner ID instead of current user ID
+        String ownerIdStr = ownerIdField.getText().trim();
+        int ownerId;
+        try {
+            ownerId = Integer.parseInt(ownerIdStr);
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(this, "Owner ID must be a valid number!", "Error", JOptionPane.ERROR_MESSAGE);
+            ownerIdField.requestFocus();
+            return;
+        }
 
         String model = modelField.getText().trim();
         String make = makeField.getText().trim();
@@ -229,7 +194,6 @@ public class OwnerForm extends JPanel {
         int seconds = (Integer) secondsSpinner.getValue();
         String residencyTime = String.format("%02d:%02d:%02d", hours, minutes, seconds);
 
-
         // Validation
         if (model.isEmpty() || make.isEmpty() || yearStr.isEmpty() || vin.isEmpty()) {
             JOptionPane.showMessageDialog(this, "All fields (Model, Make, Year, VIN) are required!", "Error", JOptionPane.ERROR_MESSAGE);
@@ -239,7 +203,7 @@ public class OwnerForm extends JPanel {
             Integer.parseInt(yearStr); // Basic check if year is a number
         } catch (NumberFormatException ex) {
             JOptionPane.showMessageDialog(this, "Year must be a valid number!", "Error", JOptionPane.ERROR_MESSAGE);
-             yearField.requestFocus();
+            yearField.requestFocus();
             return;
         }
         if (residencyTime.equals("00:00:00")) {
@@ -247,15 +211,11 @@ public class OwnerForm extends JPanel {
             return;
         }
 
-
-        // Create Vehicle object (timestamp set automatically in constructor)
-        // Use the current logged-in user's ID
-        Vehicle vehicle = new Vehicle(currentUser.getUserId(), model, make, yearStr, vin, residencyTime);
-
+        // Create Vehicle object with manually entered owner ID
+        Vehicle vehicle = new Vehicle(ownerId, model, make, yearStr, vin, residencyTime);
 
         // Submit using CloudControllerDAO
         boolean submitted = cloudControllerDAO.submitVehicleForApproval(vehicle, currentUser);
-
 
         if (submitted) {
             JOptionPane.showMessageDialog(this,
@@ -268,8 +228,8 @@ public class OwnerForm extends JPanel {
         }
     }
 
-
     private void clearForm() {
+        // Keep the owner ID field as is for convenience
         modelField.setText("");
         makeField.setText("");
         yearField.setText("");

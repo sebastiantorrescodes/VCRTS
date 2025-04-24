@@ -5,7 +5,6 @@ import javax.swing.*;
 import java.awt.*;
 import java.util.logging.Logger;
 import models.User;
-import gui.*;
 
 public class ServerFrame extends JFrame {
     private static final Logger logger = Logger.getLogger(ServerFrame.class.getName());

@@ -1,11 +1,10 @@
 package gui.client;
 
 import javax.swing.*;
-import javax.swing.table.*;
+import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.table.JTableHeader;
 import java.awt.*;
-import java.text.SimpleDateFormat;
-import java.util.Calendar;
-import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
@@ -15,6 +14,9 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.Date;
 import dao.CloudControllerDAO;
 import dao.JobDAO;
 import models.Job;
@@ -25,7 +27,7 @@ public class ClientDashboard extends JPanel {
 
     private User client; // Authenticated client (job owner)
     private JobDAO jobDAO = new JobDAO();
-    private CloudControllerDAO cloudControllerDAO = new CloudControllerDAO(); // For loading job status
+    private CloudControllerDAO cloudControllerDAO = new CloudControllerDAO();
 
     private JTable jobTable;
     private DefaultTableModel tableModel;
@@ -43,41 +45,55 @@ public class ClientDashboard extends JPanel {
     public ClientDashboard(User client) {
         this.client = client;
         setLayout(new BorderLayout(10, 10));
-        setBackground(Color.WHITE); // Cleaner background
+        setBackground(Color.WHITE);
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        // Top panel with title
-        JPanel topPanel = new JPanel(new BorderLayout());
-        topPanel.setBackground(new Color(43, 43, 43));
-        JLabel titleLabel = new JLabel("My Jobs Dashboard", SwingConstants.CENTER);
+        // Top navigation with title - CONSISTENT WITH OwnerDashboard
+        JPanel topNav = new JPanel(new BorderLayout());
+        topNav.setBackground(new Color(43, 43, 43));
+        JLabel titleLabel = new JLabel("Job Owner Dashboard", SwingConstants.CENTER);
         titleLabel.setFont(new Font("Arial", Font.BOLD, 20));
         titleLabel.setForeground(Color.WHITE);
-        topPanel.add(titleLabel, BorderLayout.CENTER);
-        topPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-        add(topPanel, BorderLayout.NORTH);
+        topNav.add(titleLabel, BorderLayout.CENTER);
+        add(topNav, BorderLayout.NORTH);
 
         // Table setup
-        // Added "Est. Completion" from controller, removed "Time to Complete" (relative)
         String[] columnNames = {"Job ID", "Status", "Duration", "Deadline", "Created At", "Est. Completion"};
         tableModel = new DefaultTableModel(columnNames, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) { return false; }
+            @Override public boolean isCellEditable(int row, int column) { return false; }
         };
         jobTable = new JTable(tableModel);
-        setupTableAppearance(jobTable); // Use helper method for consistent look
+        jobTable.setBackground(new Color(230, 230, 230)); // CONSISTENT WITH OwnerDashboard
+        jobTable.setForeground(Color.BLACK);
+        jobTable.setRowHeight(30);
+        jobTable.setFont(new Font("Arial", Font.PLAIN, 14));
+
+        // Center-align all columns - CONSISTENT WITH OwnerDashboard
+        DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer();
+        centerRenderer.setHorizontalAlignment(JLabel.CENTER);
+        for (int i = 0; i < jobTable.getColumnCount(); i++) {
+            jobTable.getColumnModel().getColumn(i).setCellRenderer(centerRenderer);
+        }
+
+        JTableHeader header = jobTable.getTableHeader();
+        header.setBackground(new Color(200, 200, 200));
+        header.setForeground(Color.BLACK);
+        header.setFont(new Font("Arial", Font.BOLD, 15));
+
+        // Center table header text - CONSISTENT WITH OwnerDashboard
+        ((DefaultTableCellRenderer)header.getDefaultRenderer()).setHorizontalAlignment(JLabel.CENTER);
 
         JScrollPane scrollPane = new JScrollPane(jobTable);
         add(scrollPane, BorderLayout.CENTER);
 
-        // Filter, Refresh & Add Job Panel
-        JPanel controlPanel = new JPanel();
-        controlPanel.setBackground(Color.WHITE);
-        controlPanel.setLayout(new FlowLayout(FlowLayout.CENTER, 20, 10));
-
+        // Filter, Refresh & Add Job Panel - CONSISTENT WITH OwnerDashboard
+        JPanel controlPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        controlPanel.setBackground(new Color(43, 43, 43));
+        
         JLabel statusLabel = new JLabel("Filter by Status:");
+        statusLabel.setForeground(Color.WHITE);
         controlPanel.add(statusLabel);
 
-        // Include "Pending Approval" in filter options
         String[] statuses = {"All", CloudControllerDAO.STATE_PENDING_APPROVAL, CloudControllerDAO.STATE_QUEUED, CloudControllerDAO.STATE_PROGRESS, CloudControllerDAO.STATE_COMPLETED};
         statusFilter = new JComboBox<>(statuses);
         statusFilter.setBackground(Color.WHITE);
@@ -86,19 +102,16 @@ public class ClientDashboard extends JPanel {
         controlPanel.add(statusFilter);
 
         refreshButton = new JButton("Refresh List");
-        refreshButton.setFont(new Font("Arial", Font.BOLD, 14));
         refreshButton.addActionListener(e -> updateTable());
         controlPanel.add(refreshButton);
 
-        addJobButton = new JButton("Submit New Job"); // Changed text
-        addJobButton.setFont(new Font("Arial", Font.BOLD, 14));
-        addJobButton.addActionListener(e -> openSubmitJobDialog()); // Changed method called
+        addJobButton = new JButton("Submit New Job");
+        addJobButton.addActionListener(e -> openSubmitJobDialog());
         controlPanel.add(addJobButton);
 
         add(controlPanel, BorderLayout.SOUTH);
 
-        // Initial data load and timer (optional, depends if real-time updates are desired)
-        // new Timer(15000, e -> updateTable()).start(); // Slightly longer interval
+        // Initial data load
         updateTable();
         
         // Connect to the server
@@ -186,49 +199,96 @@ public class ClientDashboard extends JPanel {
     }
 
     /**
-     * Opens a dialog for submitting a new job for approval.
+     * Opens a dialog for submitting a new job for approval - CONSISTENT STYLE WITH OwnerForm
      */
     private void openSubmitJobDialog() {
+        // Use same layout approach as OwnerForm
         JPanel panel = new JPanel(new GridBagLayout());
+        panel.setBackground(Color.WHITE);
         GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(5,5,5,5);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(8, 8, 8, 8);
         gbc.anchor = GridBagConstraints.WEST;
 
-        JTextField jobIdField = new JTextField(15);
-        JTextField jobNameField = new JTextField(15);
+        // Use same styling as OwnerForm
+        Font labelFont = new Font("Segoe UI", Font.PLAIN, 14);
+        Font fieldFont = new Font("Segoe UI", Font.PLAIN, 14);
+
+        gbc.gridx=0; gbc.gridy=0; 
+        JLabel jobIdLabel = new JLabel("Job ID:", SwingConstants.LEFT);
+        jobIdLabel.setFont(labelFont);
+        panel.add(jobIdLabel, gbc);
         
-        // Duration spinners
+        JTextField jobIdField = new JTextField(15);
+        jobIdField.setFont(fieldFont);
+        jobIdField.setHorizontalAlignment(SwingConstants.LEFT);
+        gbc.gridx=1; panel.add(jobIdField, gbc);
+        
+        gbc.gridx=0; gbc.gridy=1;
+        JLabel jobNameLabel = new JLabel("Job Name:", SwingConstants.LEFT);
+        jobNameLabel.setFont(labelFont);
+        panel.add(jobNameLabel, gbc);
+        
+        JTextField jobNameField = new JTextField(15);
+        jobNameField.setFont(fieldFont);
+        jobNameField.setHorizontalAlignment(SwingConstants.LEFT);
+        gbc.gridx=1; panel.add(jobNameField, gbc);
+        
+        // Duration spinners with consistent styling
+        gbc.gridx=0; gbc.gridy=2;
+        JLabel durationLabel = new JLabel("Duration:", SwingConstants.LEFT);
+        durationLabel.setFont(labelFont);
+        panel.add(durationLabel, gbc);
+        
+        JPanel durationPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+        durationPanel.setBackground(Color.WHITE);
+        
+        Dimension spinnerSize = new Dimension(50, 25);
+        
         SpinnerNumberModel hoursModel = new SpinnerNumberModel(0, 0, 99, 1);
         JSpinner hoursSpinner = new JSpinner(hoursModel);
+        hoursSpinner.setEditor(new JSpinner.NumberEditor(hoursSpinner, "00"));
+        hoursSpinner.setPreferredSize(spinnerSize);
+        hoursSpinner.setFont(fieldFont);
+        
         SpinnerNumberModel minutesModel = new SpinnerNumberModel(0, 0, 59, 1);
         JSpinner minutesSpinner = new JSpinner(minutesModel);
+        minutesSpinner.setEditor(new JSpinner.NumberEditor(minutesSpinner, "00"));
+        minutesSpinner.setPreferredSize(spinnerSize);
+        minutesSpinner.setFont(fieldFont);
+        
         SpinnerNumberModel secondsModel = new SpinnerNumberModel(0, 0, 59, 1);
         JSpinner secondsSpinner = new JSpinner(secondsModel);
+        secondsSpinner.setEditor(new JSpinner.NumberEditor(secondsSpinner, "00"));
+        secondsSpinner.setPreferredSize(spinnerSize);
+        secondsSpinner.setFont(fieldFont);
+        
+        durationPanel.add(hoursSpinner); durationPanel.add(new JLabel("h"));
+        durationPanel.add(Box.createHorizontalStrut(5));
+        durationPanel.add(minutesSpinner); durationPanel.add(new JLabel("m"));
+        durationPanel.add(Box.createHorizontalStrut(5));
+        durationPanel.add(secondsSpinner); durationPanel.add(new JLabel("s"));
+        
+        gbc.gridx=1; panel.add(durationPanel, gbc);
         
         // Deadline spinner
+        gbc.gridx=0; gbc.gridy=3;
+        JLabel deadlineLabel = new JLabel("Deadline:", SwingConstants.LEFT);
+        deadlineLabel.setFont(labelFont);
+        panel.add(deadlineLabel, gbc);
+        
         SpinnerDateModel dateModel = new SpinnerDateModel(new Date(), null, null, Calendar.DAY_OF_MONTH);
         JSpinner dateSpinner = new JSpinner(dateModel);
         JSpinner.DateEditor dateEditor = new JSpinner.DateEditor(dateSpinner, "yyyy-MM-dd");
         dateSpinner.setEditor(dateEditor);
-
-        gbc.gridx=0; gbc.gridy=0; panel.add(new JLabel("Job ID:"), gbc);
-        gbc.gridx=1; gbc.gridy=0; panel.add(jobIdField, gbc);
-        
-        gbc.gridx=0; gbc.gridy=1; panel.add(new JLabel("Job Name:"), gbc);
-        gbc.gridx=1; gbc.gridy=1; panel.add(jobNameField, gbc);
-
-        gbc.gridx=0; gbc.gridy=2; panel.add(new JLabel("Duration:"), gbc);
-        JPanel durationPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
-        durationPanel.add(hoursSpinner); durationPanel.add(new JLabel("h"));
-        durationPanel.add(minutesSpinner); durationPanel.add(new JLabel("m"));
-        durationPanel.add(secondsSpinner); durationPanel.add(new JLabel("s"));
-        gbc.gridx=1; gbc.gridy=2; panel.add(durationPanel, gbc);
-
-        gbc.gridx=0; gbc.gridy=3; panel.add(new JLabel("Deadline:"), gbc);
-        gbc.gridx=1; gbc.gridy=3; panel.add(dateSpinner, gbc);
+        dateSpinner.setFont(fieldFont);
+        gbc.gridx=1; panel.add(dateSpinner, gbc);
 
         gbc.gridx=0; gbc.gridy=4; gbc.gridwidth=2; gbc.anchor = GridBagConstraints.CENTER;
-        panel.add(new JLabel("Job will be submitted for Controller approval.", SwingConstants.CENTER), gbc);
+        JLabel noteLabel = new JLabel("Job will be submitted for Controller approval.");
+        noteLabel.setFont(new Font("Segoe UI", Font.ITALIC, 12));
+        noteLabel.setForeground(Color.DARK_GRAY);
+        panel.add(noteLabel, gbc);
 
         int result = JOptionPane.showConfirmDialog(this, panel, "Submit New Job for Approval", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (result == JOptionPane.OK_OPTION) {
@@ -256,7 +316,7 @@ public class ClientDashboard extends JPanel {
                 return;
             }
 
-            // Use socket communication instead of directly calling the DAO
+            // Use socket communication
             if (connected && out != null) {
                 try {
                     // Format: NEW_JOB:userId,jobId,jobName,duration,deadline
@@ -269,7 +329,7 @@ public class ClientDashboard extends JPanel {
                         "Job (ID: " + jobId + ") submitted for approval.\nWaiting for Cloud Controller to review.",
                         "Submission Success",
                         JOptionPane.INFORMATION_MESSAGE);
-                    updateTable(); // Refresh table to show the new pending job
+                    updateTable();
                 } catch (Exception e) {
                     JOptionPane.showMessageDialog(this, 
                         "Error sending job submission: " + e.getMessage(), 
@@ -282,7 +342,6 @@ public class ClientDashboard extends JPanel {
                     "Connection Error", 
                     JOptionPane.ERROR_MESSAGE);
                 
-                // Try to reconnect
                 connectToServer();
             }
         }
@@ -290,42 +349,36 @@ public class ClientDashboard extends JPanel {
 
     /**
      * Updates the job table based on the selected status filter.
-     * Retrieves estimated completion times from the schedule file.
      */
     public void updateTable() {
         try {
-            tableModel.setRowCount(0); // Clear table
+            tableModel.setRowCount(0);
             String selectedStatus = (String) statusFilter.getSelectedItem();
-             Map<String, String> completionTimes = cloudControllerDAO.loadSchedule(); // Load schedule once
-             Map<String, String> currentStates = cloudControllerDAO.loadJobStates(); // Load states once
+            Map<String, String> completionTimes = cloudControllerDAO.loadSchedule();
+            Map<String, String> currentStates = cloudControllerDAO.loadJobStates();
 
-            // Get all jobs *belonging to this client*
-             // We need to handle filtering based on the *actual* status (from state file or pending)
-            List<Job> allClientJobs = jobDAO.getJobsByClient(client.getUserId(), "All"); // Get all first
+            List<Job> allClientJobs = jobDAO.getJobsByClient(client.getUserId(), "All");
 
             for (Job job : allClientJobs) {
-                 // Determine the correct status to display and filter by
-                 String displayStatus = CloudControllerDAO.STATE_PENDING_APPROVAL.equals(job.getStatus())
-                                      ? CloudControllerDAO.STATE_PENDING_APPROVAL
-                                      : currentStates.getOrDefault(job.getJobId(), job.getStatus());
+                String displayStatus = CloudControllerDAO.STATE_PENDING_APPROVAL.equals(job.getStatus())
+                                     ? CloudControllerDAO.STATE_PENDING_APPROVAL
+                                     : currentStates.getOrDefault(job.getJobId(), job.getStatus());
 
-                 // Apply filter
                 if ("All".equalsIgnoreCase(selectedStatus) || selectedStatus.equalsIgnoreCase(displayStatus)) {
                     String estimatedCompletion = completionTimes.getOrDefault(job.getJobId(), "-");
-                     // Don't show completion time for pending jobs
-                     if (CloudControllerDAO.STATE_PENDING_APPROVAL.equals(displayStatus)) {
-                         estimatedCompletion = "N/A (Pending)";
-                     } else if (CloudControllerDAO.STATE_COMPLETED.equals(displayStatus) && "-".equals(estimatedCompletion)) {
-                          estimatedCompletion = "Completed"; // If state is complete but no time recorded
-                     }
+                    if (CloudControllerDAO.STATE_PENDING_APPROVAL.equals(displayStatus)) {
+                        estimatedCompletion = "N/A (Pending)";
+                    } else if (CloudControllerDAO.STATE_COMPLETED.equals(displayStatus) && "-".equals(estimatedCompletion)) {
+                        estimatedCompletion = "Completed";
+                    }
 
                     tableModel.addRow(new Object[]{
                             job.getJobId(),
-                            displayStatus, // Show the accurate status
+                            displayStatus,
                             job.getDuration(),
                             job.getDeadline(),
                             job.getCreatedTimestamp(),
-                            estimatedCompletion // Show estimated completion from schedule
+                            estimatedCompletion
                     });
                 }
             }
@@ -333,28 +386,5 @@ public class ClientDashboard extends JPanel {
             logger.log(Level.SEVERE, "Error updating job table: " + ex.getMessage(), ex);
             JOptionPane.showMessageDialog(this, "Error loading job data: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
         }
-    }
-
-     // Helper method for consistent table appearance
-    private void setupTableAppearance(JTable table) {
-        table.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        table.setRowHeight(28);
-        table.setGridColor(Color.LIGHT_GRAY);
-         table.setShowGrid(true);
-         table.setIntercellSpacing(new Dimension(1,1));
-        table.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 14));
-        table.getTableHeader().setBackground(new Color(220, 220, 220));
-         table.setSelectionBackground(new Color(184, 207, 229));
-         table.setSelectionForeground(Color.BLACK);
-
-        // Center-align all columns
-        DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer();
-        centerRenderer.setHorizontalAlignment(JLabel.CENTER);
-        for (int i = 0; i < table.getColumnCount(); i++) {
-            table.getColumnModel().getColumn(i).setCellRenderer(centerRenderer);
-        }
-         // Center header text too
-         ((DefaultTableCellRenderer)table.getTableHeader().getDefaultRenderer())
-             .setHorizontalAlignment(JLabel.CENTER);
     }
 }
