@@ -114,6 +114,7 @@ public class UniversalDashboard extends JPanel {
             }
 
             if (user.hasRole("vehicle_owner")) {
+                // Use the modified OwnerDashboard that shows the vehicle list directly
                 ownerDashboard = new OwnerDashboard(user.getUserId());
                 contentPanel.add(ownerDashboard, "vehicle_owner");
             }
