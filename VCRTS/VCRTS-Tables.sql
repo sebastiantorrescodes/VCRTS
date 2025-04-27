@@ -1,12 +1,3 @@
--- Drop tables in reverse order of creation
-DROP TABLE IF EXISTS job_schedule;
-DROP TABLE IF EXISTS job_states;
-DROP TABLE IF EXISTS pending_requests;
-DROP TABLE IF EXISTS allocations;
-DROP TABLE IF EXISTS jobs;
-DROP TABLE IF EXISTS vehicles;
-DROP TABLE IF EXISTS users;
-
 -- Create users table
 CREATE TABLE users (
     user_id INT PRIMARY KEY AUTO_INCREMENT,
@@ -38,29 +29,4 @@ CREATE TABLE jobs (
     status VARCHAR(20) NOT NULL,
     created_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (job_owner_id) REFERENCES users(user_id) ON DELETE CASCADE
-);
-/*there should be an allocation table to but i removed it as its not a necessary
-function within the program and pending requests will be have changes too
-
--- Create pending_requests table 
-CREATE TABLE pending_requests (
-    request_id INT PRIMARY KEY AUTO_INCREMENT,
-    request_type ENUM('JOB', 'VEHICLE') NOT NULL,
-    data_json TEXT NOT NULL,
-    submitted_by_info VARCHAR(255) NOT NULL,
-    submission_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-); */
-
--- Create job_schedule table
-CREATE TABLE job_schedule (
-    job_id VARCHAR(50) PRIMARY KEY,
-    completion_time VARCHAR(20),
-    FOREIGN KEY (job_id) REFERENCES jobs(job_id) ON DELETE CASCADE
-);
-
--- Create job_states table
-CREATE TABLE job_states (
-    job_id VARCHAR(50) PRIMARY KEY,
-    state VARCHAR(20) NOT NULL,
-    FOREIGN KEY (job_id) REFERENCES jobs(job_id) ON DELETE CASCADE
 );
