@@ -13,8 +13,8 @@ import java.io.PrintWriter;
 import java.net.Socket;
 
 public class OwnerForm extends JPanel {
-    private String ownerId; // Changed to String type
-    private int vehicleOwnerId; // Added to store the actual user ID
+    private String ownerId;
+    private int vehicleOwnerId;
     private User currentUser;
     private JTextField modelField, makeField, yearField, vinField, ownerIdField;
     private JSpinner hoursSpinner, minutesSpinner, secondsSpinner;
@@ -29,7 +29,7 @@ public class OwnerForm extends JPanel {
     
     public OwnerForm(int userVehicleOwnerId) {
         this.vehicleOwnerId = userVehicleOwnerId;
-        this.ownerId = String.valueOf(userVehicleOwnerId); // Default value
+        this.ownerId = String.valueOf(userVehicleOwnerId);
         
         // Try to get the current user from the parent frame
         Component parentFrame = SwingUtilities.getWindowAncestor(this);
@@ -41,7 +41,7 @@ public class OwnerForm extends JPanel {
             System.err.println("Warning: OwnerForm could not retrieve currentUser.");
         } else {
             this.vehicleOwnerId = this.currentUser.getUserId();
-            this.ownerId = String.valueOf(this.vehicleOwnerId); // Default to the user ID as string
+            this.ownerId = String.valueOf(this.vehicleOwnerId);
         }
         
         // Initialize UI components
@@ -68,7 +68,7 @@ public class OwnerForm extends JPanel {
         gbc.insets = new Insets(8, 8, 8, 8);
         gbc.anchor = GridBagConstraints.WEST;
         
-        // Owner ID (now String type)
+        // Owner ID (now String type and editable)
         gbc.gridx = 0; gbc.gridy = 0; formPanel.add(createLabel("Owner ID:"), gbc);
         gbc.gridx = 1; gbc.gridy = 0;
         ownerIdField = new JTextField(this.ownerId);
@@ -252,7 +252,7 @@ private void listenForServerMessages() {
         }
         
         try {
-            Integer.parseInt(yearStr); // Basic check if year is a number
+            Integer.parseInt(yearStr);
         } catch (NumberFormatException ex) {
             JOptionPane.showMessageDialog(this, 
                 "Year must be a valid number!", 
@@ -276,7 +276,7 @@ private void listenForServerMessages() {
                 // Updated format: NEW_VEHICLE:ownerId,vehicleOwnerId,make,model,year,vin,residencyTime
                 String message = String.format("NEW_VEHICLE:%s,%d,%s,%s,%s,%s,%s", 
                     ownerIdText, 
-                    vehicleOwnerId, // Use the actual user ID for vehicle_owner_id
+                    vehicleOwnerId,
                     make, model, yearStr, vin, residencyTime);
                 out.println(message);
                 System.out.println("Sent to server: " + message);
@@ -303,29 +303,24 @@ private void listenForServerMessages() {
         }
     }
     
-    // Helper UI methods remain the same
     private JLabel createLabel(String text) {
-        // Implementation remains unchanged
         return new JLabel(text, SwingConstants.LEFT);
     }
 
     private JTextField createTextField(int columns) {
-        // Implementation remains unchanged
         return new JTextField(columns);
     }
 
     private JPanel createTimePanel() {
-        // Implementation remains unchanged
         return new JPanel();
     }
 
     private void clearForm() {
-        // Keep the owner ID field as is for convenience
         modelField.setText("");
         makeField.setText("");
         yearField.setText("");
         vinField.setText("");
-        hoursSpinner.setValue(1); // Reset time to default
+        hoursSpinner.setValue(1);
         minutesSpinner.setValue(0);
         secondsSpinner.setValue(0);
     }

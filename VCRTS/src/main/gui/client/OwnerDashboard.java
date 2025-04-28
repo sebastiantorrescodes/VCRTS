@@ -20,12 +20,12 @@ import models.Vehicle;
 public class OwnerDashboard extends JPanel {
     private static final Logger logger = Logger.getLogger(OwnerDashboard.class.getName());
 
-    private String ownerId; // Changed to String to match new vehicle model
-    private int vehicleOwnerId; // Added to store the actual user ID
+    private String ownerId; 
+    private int vehicleOwnerId;
     private VehicleDAO vehicleDAO = new VehicleDAO();
     private User currentUser;
 
-    // Components for the vehicle list view
+    
     private JTable vehicleTable;
     private DefaultTableModel tableModel;
     
@@ -39,14 +39,14 @@ public class OwnerDashboard extends JPanel {
 
     public OwnerDashboard(int userVehicleOwnerId) {
         this.vehicleOwnerId = userVehicleOwnerId;
-        this.ownerId = String.valueOf(userVehicleOwnerId); // Default value for ownerId field
+        this.ownerId = String.valueOf(userVehicleOwnerId);
         
-        // Match Job Owner dashboard style
+        //Dashboard styling
         setLayout(new BorderLayout(10, 10));
         setBackground(Color.WHITE);
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        // Title label with darker background - match Job Owner style
+        // Title label styling
         JPanel headerPanel = new JPanel(new BorderLayout());
         headerPanel.setBackground(new Color(33, 33, 33));
         
@@ -79,7 +79,7 @@ public class OwnerDashboard extends JPanel {
         panel.setBackground(Color.WHITE);
         panel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
 
-        // Updated table column names to include vehicle_owner_id
+        // Table column names
         String[] columnNames = {"Owner ID", "Vehicle Owner ID", "Model", "Make", "Year", "VIN", "Residency Time", "Registered At"};
         tableModel = new DefaultTableModel(columnNames, 0) {
             @Override public boolean isCellEditable(int row, int column) { return false; }
@@ -92,7 +92,6 @@ public class OwnerDashboard extends JPanel {
         vehicleTable.setGridColor(Color.GRAY);
         vehicleTable.setShowGrid(true);
 
-        // Hide the Vehicle Owner ID column (index 1)
         vehicleTable.getColumnModel().getColumn(1).setMinWidth(0);
         vehicleTable.getColumnModel().getColumn(1).setMaxWidth(0);
         vehicleTable.getColumnModel().getColumn(1).setWidth(0);
@@ -202,7 +201,6 @@ private void listenForServerMessages() {
                     approved ? "Registration Approved" : "Registration Rejected", 
                     approved ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
 
-                // Refresh the vehicle table
                 refreshVehicleTable();
             }
         }
@@ -232,7 +230,7 @@ private void listenForServerMessages() {
             }
         }
         
-        // Use same layout approach as job submission dialog
+        // Same layout approach as job submission dialog
         JPanel panel = new JPanel(new GridBagLayout());
         panel.setBackground(Color.WHITE);
         GridBagConstraints gbc = new GridBagConstraints();
@@ -240,11 +238,11 @@ private void listenForServerMessages() {
         gbc.insets = new Insets(8, 8, 8, 8);
         gbc.anchor = GridBagConstraints.WEST;
 
-        // Use similar styling as job form
+        // Similar styling as job form
         Font labelFont = new Font("Segoe UI", Font.PLAIN, 14);
         Font fieldFont = new Font("Segoe UI", Font.PLAIN, 14);
 
-        // Owner ID field (now string type)
+        // Owner ID field
         gbc.gridx=0; gbc.gridy=0; 
         JLabel ownerIdLabel = new JLabel("Owner ID:", SwingConstants.LEFT);
         ownerIdLabel.setFont(labelFont);
@@ -337,7 +335,7 @@ private void listenForServerMessages() {
         
         gbc.gridx=1; panel.add(durationPanel, gbc);
         
-        // Approval note
+        // Approval alert
         gbc.gridx=0; gbc.gridy=6; gbc.gridwidth=2; gbc.anchor = GridBagConstraints.CENTER;
         JLabel noteLabel = new JLabel("Vehicle will be submitted for Controller approval.");
         noteLabel.setFont(new Font("Segoe UI", Font.ITALIC, 12));
