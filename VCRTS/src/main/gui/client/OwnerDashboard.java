@@ -20,7 +20,8 @@ import models.Vehicle;
 public class OwnerDashboard extends JPanel {
     private static final Logger logger = Logger.getLogger(OwnerDashboard.class.getName());
 
-    private int ownerId;
+    private String ownerId; // Changed to String to match new vehicle model
+    private int vehicleOwnerId; // Added to store the actual user ID
     private VehicleDAO vehicleDAO = new VehicleDAO();
     private User currentUser;
 
@@ -36,8 +37,9 @@ public class OwnerDashboard extends JPanel {
     private final int SERVER_PORT = 9876; 
     private boolean connected = false;
 
-    public OwnerDashboard(int ownerId) {
-        this.ownerId = ownerId;
+    public OwnerDashboard(int userVehicleOwnerId) {
+        this.vehicleOwnerId = userVehicleOwnerId;
+        this.ownerId = String.valueOf(userVehicleOwnerId); // Default value for ownerId field
         
         // Match Job Owner dashboard style
         setLayout(new BorderLayout(10, 10));
@@ -77,8 +79,8 @@ public class OwnerDashboard extends JPanel {
         panel.setBackground(Color.WHITE);
         panel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
 
-        // Table setup
-        String[] columnNames = {"Owner ID", "Model", "Make", "Year", "VIN", "Residency Time", "Registered At"};
+        // Updated table column names to include vehicle_owner_id
+        String[] columnNames = {"Owner ID", "Vehicle Owner ID", "Model", "Make", "Year", "VIN", "Residency Time", "Registered At"};
         tableModel = new DefaultTableModel(columnNames, 0) {
             @Override public boolean isCellEditable(int row, int column) { return false; }
         };
@@ -137,7 +139,7 @@ public class OwnerDashboard extends JPanel {
         return panel;
     }
     
-    // Socket connection methods
+ // Socket connection methods
     private void connectToServer() {
         new Thread(() -> {
             try {
@@ -146,13 +148,13 @@ public class OwnerDashboard extends JPanel {
                 in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
                 connected = true;
                 System.out.println("Connected to Cloud Controller server");
-                
+
                 // Start a thread to listen for server messages
                 new Thread(this::listenForServerMessages).start();
             } catch (IOException e) {
                 System.err.println("Could not connect to Cloud Controller: " + e.getMessage());
                 connected = false;
-                
+
                 // Schedule reconnect attempt
                 Timer reconnectTimer = new Timer(5000, event -> connectToServer());
                 reconnectTimer.setRepeats(false);
@@ -160,8 +162,7 @@ public class OwnerDashboard extends JPanel {
             }
         }).start();
     }
-    
-    private void listenForServerMessages() {
+private void listenForServerMessages() {
         try {
             String message;
             while (connected && (message = in.readLine()) != null) {
@@ -172,48 +173,36 @@ public class OwnerDashboard extends JPanel {
             if (connected) {
                 System.err.println("Error reading from server: " + e.getMessage());
                 connected = false;
-                
+
                 // Try to reconnect
                 connectToServer();
             }
         }
     }
-    
+
     private void processServerMessage(String message) {
         System.out.println("Received from server: " + message);
-        
+
         if (message.startsWith("APPROVAL_STATUS:")) {
             // Parse: APPROVAL_STATUS:vin,approved/rejected
             String[] parts = message.substring("APPROVAL_STATUS:".length()).split(",");
             if (parts.length >= 2) {
                 String vin = parts[0];
                 boolean approved = "approved".equals(parts[1]);
-                
+
                 // Show notification to user
                 JOptionPane.showMessageDialog(this, 
                     "Your vehicle (VIN: " + vin + ") has been " + (approved ? "approved" : "rejected") + 
                     "\n" + (approved ? "The vehicle has been added to the system." : "Please check your submission details and try again."),
                     approved ? "Registration Approved" : "Registration Rejected", 
                     approved ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
-                
-                // IMPORTANT: Refresh the vehicle table
-                if (approved) {
-                    // Need to check ALL vehicles to find the owner ID of the approved vehicle
-                    VehicleDAO tempVehicleDAO = new VehicleDAO();
-                    List<Vehicle> allVehicles = tempVehicleDAO.getAllVehicles();
-                    for (Vehicle v : allVehicles) {
-                        if (v.getVin().equals(vin)) {
-                            // Update the ownerId to match the approved vehicle's owner
-                            this.ownerId = v.getOwnerId();
-                            break;
-                        }
-                    }
-                }
+
+                // Refresh the vehicle table
                 refreshVehicleTable();
             }
         }
     }
-    
+
     private void disconnectFromServer() {
         connected = false;
         try {
@@ -227,7 +216,7 @@ public class OwnerDashboard extends JPanel {
     }
 
     /**
-     * Opens a dialog for submitting a new vehicle
+     * Opens a dialog for submitting a new vehicle - Updated for new Vehicle model
      */
     private void openSubmitVehicleDialog() {
         // Update current user reference if needed
@@ -250,7 +239,7 @@ public class OwnerDashboard extends JPanel {
         Font labelFont = new Font("Segoe UI", Font.PLAIN, 14);
         Font fieldFont = new Font("Segoe UI", Font.PLAIN, 14);
 
-        // Owner ID field (now editable)
+        // Owner ID field (now string type)
         gbc.gridx=0; gbc.gridy=0; 
         JLabel ownerIdLabel = new JLabel("Owner ID:", SwingConstants.LEFT);
         ownerIdLabel.setFont(labelFont);
@@ -259,8 +248,7 @@ public class OwnerDashboard extends JPanel {
         JTextField ownerIdField = new JTextField(15);
         ownerIdField.setFont(fieldFont);
         ownerIdField.setHorizontalAlignment(SwingConstants.LEFT);
-        ownerIdField.setText(String.valueOf(ownerId));
-        // Note: Making it editable by NOT setting it to non-editable
+        ownerIdField.setText(this.ownerId); // Default to the current user ID as string
         gbc.gridx=1; panel.add(ownerIdField, gbc);
         
         // Model field
@@ -355,13 +343,6 @@ public class OwnerDashboard extends JPanel {
         if (result == JOptionPane.OK_OPTION) {
             // Get the owner ID from the text field
             String ownerIdText = ownerIdField.getText().trim();
-            int ownerId;
-            try {
-                ownerId = Integer.parseInt(ownerIdText);
-            } catch (NumberFormatException e) {
-                JOptionPane.showMessageDialog(this, "Owner ID must be a valid number!", "Error", JOptionPane.ERROR_MESSAGE);
-                return;
-            }
             
             String model = modelField.getText().trim();
             String make = makeField.getText().trim();
@@ -398,9 +379,11 @@ public class OwnerDashboard extends JPanel {
             // Use socket communication
             if (connected && out != null) {
                 try {
-                    // Format: NEW_VEHICLE:userId,make,model,year,vin,residencyTime
-                    String message = String.format("NEW_VEHICLE:%d,%s,%s,%s,%s,%s", 
-                        ownerId, make, model, year, vin, residencyTime);
+                    // Updated format: NEW_VEHICLE:ownerId,vehicleOwnerId,make,model,year,vin,residencyTime
+                    String message = String.format("NEW_VEHICLE:%s,%d,%s,%s,%s,%s,%s", 
+                        ownerIdText, 
+                        currentUser.getUserId(), // Use the actual user ID for vehicle_owner_id
+                        make, model, year, vin, residencyTime);
                     out.println(message);
                     System.out.println("Sent to server: " + message);
                     
@@ -429,10 +412,11 @@ public class OwnerDashboard extends JPanel {
     public void refreshVehicleTable() {
         try {
             tableModel.setRowCount(0);
-            List<Vehicle> vehicles = vehicleDAO.getVehiclesByOwner(ownerId);
+            List<Vehicle> vehicles = vehicleDAO.getVehiclesByVehicleOwner(vehicleOwnerId);
             for (Vehicle v : vehicles) {
                 tableModel.addRow(new Object[]{
                         v.getOwnerId(),
+                        v.getVehicleOwnerId(),
                         v.getModel(),
                         v.getMake(),
                         v.getYear(),

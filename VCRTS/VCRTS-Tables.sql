@@ -10,12 +10,14 @@ CREATE TABLE users (
 -- Create vehicles table
 CREATE TABLE vehicles (
     vin VARCHAR(20) PRIMARY KEY,
-    owner_id INT NOT NULL,
+    owner_id VARCHAR(50) NOT NULL,             
+    vehicle_owner_id INT NOT NULL,     
     model VARCHAR(50) NOT NULL,
     make VARCHAR(50) NOT NULL,
     year VARCHAR(4) NOT NULL,
     residency_time VARCHAR(10) NOT NULL,
-    registered_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    registered_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (vehicle_owner_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
 -- Create jobs table

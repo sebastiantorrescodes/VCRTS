@@ -223,25 +223,26 @@ public class CloudControllerDashboard extends JPanel {
         private void processMessage(String message) {
             System.out.println("Received message: " + message);
             
-            // Handle vehicle registration
+            // Handle vehicle registration with updated format
             if (message.startsWith("NEW_VEHICLE:")) {
-                // Format: NEW_VEHICLE:userId,make,model,year,vin,residencyTime
+                // Updated format: NEW_VEHICLE:ownerId,vehicleOwnerId,make,model,year,vin,residencyTime
                 String[] parts = message.substring("NEW_VEHICLE:".length()).split(",");
-                if (parts.length >= 6) {
+                if (parts.length >= 7) {
                     try {
-                        int userId = Integer.parseInt(parts[0]);
-                        String make = parts[1];
-                        String model = parts[2];
-                        String year = parts[3];
-                        String vin = parts[4];
-                        String residencyTime = parts[5];
+                        String ownerId = parts[0]; // Now a string
+                        int vehicleOwnerId = Integer.parseInt(parts[1]); // Actual user ID
+                        String make = parts[2];
+                        String model = parts[3];
+                        String year = parts[4];
+                        String vin = parts[5];
+                        String residencyTime = parts[6];
                         
-                        // Create a Vehicle object
-                        Vehicle vehicle = new Vehicle(userId, model, make, year, vin, residencyTime);
+                        // Create a Vehicle object with the new fields
+                        Vehicle vehicle = new Vehicle(ownerId, vehicleOwnerId, model, make, year, vin, residencyTime);
                         
                         // Create a PendingRequest object
                         UserDAO userDAO = new UserDAO();
-                        User submitter = userDAO.getUserById(userId);
+                        User submitter = userDAO.getUserById(vehicleOwnerId);
                         
                         PendingRequest request = new PendingRequest(
                             PendingRequest.RequestType.VEHICLE,
@@ -250,7 +251,7 @@ public class CloudControllerDashboard extends JPanel {
                         );
                         
                         // Set submitted by info manually since we don't have User object
-                        String submitterInfo = "User ID: " + userId;
+                        String submitterInfo = "User ID: " + vehicleOwnerId;
                         if (submitter != null) {
                             submitterInfo += " (" + submitter.getFullName() + ")";
                         }
@@ -284,7 +285,7 @@ public class CloudControllerDashboard extends JPanel {
                             // Show notification about new request
                             JOptionPane.showMessageDialog(
                                 CloudControllerDashboard.this,
-                                "New vehicle registration request received!\nMake: " + make + ", Model: " + model + ", VIN: " + vin,
+                                "New vehicle registration request received!\nOwner id: "+ ownerId +", Make: " + make + ", Model: " + model + ", VIN: " + vin,
                                 "New Request",
                                 JOptionPane.INFORMATION_MESSAGE
                             );
