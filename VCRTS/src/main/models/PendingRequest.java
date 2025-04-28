@@ -41,7 +41,7 @@ public static void setNextId(int id) {
             dataDetails = String.format("Job ID: %s, Name: %s", job.getJobId(), job.getJobName());
         } else if (type == RequestType.VEHICLE && data instanceof Vehicle) {
             Vehicle vehicle = (Vehicle) data;
-            dataDetails = String.format("VIN: %s, Make: %s, Model: %s", vehicle.getVin(), vehicle.getMake(), vehicle.getModel());
+            dataDetails = String.format("Owner_id: %s, VIN: %s, Make: %s, Model: %s", vehicle.getOwnerId(), vehicle.getVin(), vehicle.getMake(), vehicle.getModel());
         }
         return String.format("Req ID: %d, Type: %s, Submitted by: %s, Details: [%s]",
                 requestId, type, submittedByInfo, dataDetails);

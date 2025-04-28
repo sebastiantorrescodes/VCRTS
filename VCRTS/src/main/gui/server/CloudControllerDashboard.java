@@ -615,8 +615,8 @@ public class CloudControllerDashboard extends JPanel {
                 String details = "";
                 if (req.getType() == PendingRequest.RequestType.VEHICLE) {
                     Vehicle vehicle = (Vehicle) req.getData();
-                    details = String.format("VIN: %s, %s %s (%s)", 
-                        vehicle.getVin(), vehicle.getMake(), vehicle.getModel(), vehicle.getYear());
+                    details = String.format("Owner ID: %s, VIN: %s, %s %s (%s)", 
+                        vehicle.getOwnerId(), vehicle.getVin(), vehicle.getMake(), vehicle.getModel(), vehicle.getYear());
                 } else if (req.getType() == PendingRequest.RequestType.JOB) {
                     Job job = (Job) req.getData();
                     details = String.format("ID: %s, Name: %s, Duration: %s", 

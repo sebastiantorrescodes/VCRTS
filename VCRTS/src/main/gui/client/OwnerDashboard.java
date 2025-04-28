@@ -92,6 +92,11 @@ public class OwnerDashboard extends JPanel {
         vehicleTable.setGridColor(Color.GRAY);
         vehicleTable.setShowGrid(true);
 
+        // Hide the Vehicle Owner ID column (index 1)
+        vehicleTable.getColumnModel().getColumn(1).setMinWidth(0);
+        vehicleTable.getColumnModel().getColumn(1).setMaxWidth(0);
+        vehicleTable.getColumnModel().getColumn(1).setWidth(0);
+
         // Center-align all columns
         DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer();
         centerRenderer.setHorizontalAlignment(JLabel.CENTER);
