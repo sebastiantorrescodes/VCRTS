@@ -15,8 +15,7 @@ CREATE TABLE vehicles (
     make VARCHAR(50) NOT NULL,
     year VARCHAR(4) NOT NULL,
     residency_time VARCHAR(10) NOT NULL,
-    registered_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (owner_id) REFERENCES users(user_id) ON DELETE CASCADE
+    registered_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Create jobs table

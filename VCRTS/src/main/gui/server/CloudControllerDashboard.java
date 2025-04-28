@@ -799,7 +799,7 @@ public class CloudControllerDashboard extends JPanel {
                     Vehicle vehicle = (Vehicle) requestToApprove.getData();
                     VehicleDAO vehicleDAO = new VehicleDAO();
                     
-                    // Save to database directly
+                    // Save to database directly without validation
                     boolean saved = vehicleDAO.addVehicle(vehicle);
                     
                     if (saved) {
@@ -830,7 +830,7 @@ public class CloudControllerDashboard extends JPanel {
                     // Set status to Queued
                     job.setStatus(CloudControllerDAO.STATE_QUEUED);
                     
-                    // Save to database
+                    // Save to database without validation
                     boolean saved = jobDAO.addJob(job);
                     
                     if (saved) {

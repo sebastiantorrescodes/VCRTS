@@ -15,7 +15,7 @@ import java.net.Socket;
 public class OwnerForm extends JPanel {
     private int ownerId;
     private User currentUser;
-    private JTextField modelField, makeField, yearField, vinField;
+    private JTextField modelField, makeField, yearField, vinField, ownerIdField;
     private JSpinner hoursSpinner, minutesSpinner, secondsSpinner;
     
     // Socket connection fields
@@ -65,11 +65,11 @@ public class OwnerForm extends JPanel {
         gbc.insets = new Insets(8, 8, 8, 8);
         gbc.anchor = GridBagConstraints.WEST;
         
-        // Owner ID (Read-only)
+        // Owner ID (now editable)
         gbc.gridx = 0; gbc.gridy = 0; formPanel.add(createLabel("Owner ID:"), gbc);
         gbc.gridx = 1; gbc.gridy = 0;
-        JTextField ownerIdField = new JTextField(String.valueOf(this.ownerId));
-        ownerIdField.setEditable(false);
+        ownerIdField = new JTextField(String.valueOf(this.ownerId));
+        // Note: Making it editable by NOT setting it to non-editable
         ownerIdField.setHorizontalAlignment(SwingConstants.LEFT);
         ownerIdField.setFont(new Font("Segoe UI", Font.PLAIN, 14));
         formPanel.add(ownerIdField, gbc);
@@ -217,11 +217,16 @@ public class OwnerForm extends JPanel {
                 }
             }
             
-            if (this.currentUser == null) {
+            // Get owner ID from text field
+            int ownerId;
+            try {
+                ownerId = Integer.parseInt(ownerIdField.getText().trim());
+            } catch (NumberFormatException e) {
                 JOptionPane.showMessageDialog(this, 
-                    "Cannot submit: User information not available.", 
+                    "Owner ID must be a valid number!", 
                     "Error", 
                     JOptionPane.ERROR_MESSAGE);
+                ownerIdField.requestFocus();
                 return;
             }
 
@@ -268,7 +273,7 @@ public class OwnerForm extends JPanel {
                 try {
                     // Format: NEW_VEHICLE:userId,make,model,year,vin,residencyTime
                     String message = String.format("NEW_VEHICLE:%d,%s,%s,%s,%s,%s", 
-                        currentUser.getUserId(), make, model, yearStr, vin, residencyTime);
+                        ownerId, make, model, yearStr, vin, residencyTime);
                     out.println(message);
                     System.out.println("Sent to server: " + message);
                     
@@ -343,6 +348,7 @@ public class OwnerForm extends JPanel {
         }
 
         private void clearForm() {
+            // Keep the owner ID as is
             modelField.setText("");
             makeField.setText("");
             yearField.setText("");
@@ -352,4 +358,3 @@ public class OwnerForm extends JPanel {
             secondsSpinner.setValue(0);
         }
     }
-            

@@ -196,7 +196,19 @@ public class OwnerDashboard extends JPanel {
                     approved ? "Registration Approved" : "Registration Rejected", 
                     approved ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
                 
-                // Refresh the vehicle table
+                // IMPORTANT: Refresh the vehicle table
+                if (approved) {
+                    // Need to check ALL vehicles to find the owner ID of the approved vehicle
+                    VehicleDAO tempVehicleDAO = new VehicleDAO();
+                    List<Vehicle> allVehicles = tempVehicleDAO.getAllVehicles();
+                    for (Vehicle v : allVehicles) {
+                        if (v.getVin().equals(vin)) {
+                            // Update the ownerId to match the approved vehicle's owner
+                            this.ownerId = v.getOwnerId();
+                            break;
+                        }
+                    }
+                }
                 refreshVehicleTable();
             }
         }
@@ -238,7 +250,7 @@ public class OwnerDashboard extends JPanel {
         Font labelFont = new Font("Segoe UI", Font.PLAIN, 14);
         Font fieldFont = new Font("Segoe UI", Font.PLAIN, 14);
 
-        // Owner ID field (read-only, set to current user)
+        // Owner ID field (now editable)
         gbc.gridx=0; gbc.gridy=0; 
         JLabel ownerIdLabel = new JLabel("Owner ID:", SwingConstants.LEFT);
         ownerIdLabel.setFont(labelFont);
@@ -248,7 +260,7 @@ public class OwnerDashboard extends JPanel {
         ownerIdField.setFont(fieldFont);
         ownerIdField.setHorizontalAlignment(SwingConstants.LEFT);
         ownerIdField.setText(String.valueOf(ownerId));
-        ownerIdField.setEditable(false);
+        // Note: Making it editable by NOT setting it to non-editable
         gbc.gridx=1; panel.add(ownerIdField, gbc);
         
         // Model field
@@ -341,6 +353,16 @@ public class OwnerDashboard extends JPanel {
 
         int result = JOptionPane.showConfirmDialog(this, panel, "Submit New Vehicle for Approval", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (result == JOptionPane.OK_OPTION) {
+            // Get the owner ID from the text field
+            String ownerIdText = ownerIdField.getText().trim();
+            int ownerId;
+            try {
+                ownerId = Integer.parseInt(ownerIdText);
+            } catch (NumberFormatException e) {
+                JOptionPane.showMessageDialog(this, "Owner ID must be a valid number!", "Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            
             String model = modelField.getText().trim();
             String make = makeField.getText().trim();
             String year = yearField.getText().trim();
