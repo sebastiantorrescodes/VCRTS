@@ -101,7 +101,7 @@ public class CreateAccountPageServer  extends JPanel {
         // Password
         gbc.gridx = 0;
         gbc.gridy = 3;
-        JLabel passwordLabel = new JLabel("Password:", SwingConstants.CENTER);
+        JLabel passwordLabel = new JLabel("Password: ", SwingConstants.CENTER);
         passwordLabel.setFont(new Font("Segoe UI", Font.PLAIN, 16));
         formPanel.add(passwordLabel, gbc);
 
